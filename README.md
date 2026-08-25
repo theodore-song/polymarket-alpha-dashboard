@@ -4,7 +4,8 @@ Public analytics for the PolyAlpha 100-agent Polymarket paper-trading tournament
 
 - Live dashboard: https://polymarket-alpha-dashboard-five.vercel.app
 - GitHub repository: https://github.com/theodore-song/polymarket-alpha-dashboard
-- Published snapshot: all 100 agents active, 1,461 trades, 609 open positions, 333 resting orders, and 127 engaged markets.
+- Current snapshot: v2 edge-only restart with 90 active-book agents and 10 crowd-bias shadow agents.
+- Immutable archive: v1 forced-activation ledger with all 1,461 trades and 609 positions preserved for audit.
 
 The dashboard exposes:
 
@@ -14,6 +15,7 @@ The dashboard exposes:
 - per-agent cash, equity, returns, drawdown, exposure, and activity;
 - market questions and links;
 - CSV exports and methodology documentation.
+- epoch switching, active/shadow attribution, decision-time edge auditing, and promotion progress.
 
 ## Local development
 
@@ -36,6 +38,7 @@ python3 scripts/export_snapshot.py \
 ```bash
 npm run build
 npm run build:vercel
+npm run verify:data
 ```
 
 Paper-trading research only. Simulated performance is not evidence of future returns.

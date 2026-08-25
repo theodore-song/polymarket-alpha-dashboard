@@ -1,0 +1,16 @@
+[
+  {
+    "id": "v2-edge-only",
+    "label": "V2 · Edge-only restart",
+    "file": "/data/snapshot.json",
+    "current": true,
+    "immutable": false
+  },
+  {
+    "id": "v1-forced-activation",
+    "label": "V1 · Forced activation",
+    "file": "/data/epochs/v1-forced-activation.json",
+    "current": false,
+    "immutable": true
+  }
+]

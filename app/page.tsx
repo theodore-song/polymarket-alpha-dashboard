@@ -8,17 +8,22 @@ type Agent = {
   min_liquidity: number; execution: string; params: Record<string, number>;
   cash: number; equity: number; return_pct: number; drawdown_pct: number;
   trades: number; positions: number; pending_orders: number; cost_exposure: number;
+  allocation_status?: 'active' | 'shadow'; allocation_tier?: 'probation' | 'validated'; strategy_version?: string;
+  fees_paid?: number; turnover?: number; liquidation_value?: number; realized_pnl?: number; unrealized_pnl?: number;
+  promotion?: { eligible: boolean; resolved_positions: number; days_observed: number; categories: number; edge_lcb: number | null; brier_improvement: number | null; max_event_profit_share: number | null; checks: Record<string, boolean> };
 };
-type Trade = { id: number; timestamp: number; agent_id: string; market_id: string; token_id: string; outcome: string; side: string; shares: number; price: number; fee: number; execution: string; reason: string };
+type Trade = { id: number; timestamp: number; agent_id: string; market_id: string; token_id: string; outcome: string; side: string; shares: number; price: number; fee: number; execution: string; reason: string; net_edge?: number | null; spread?: number | null; decision_class?: string | null };
 type Position = { agent_id: string; market_id: string; event_id: string; token_id: string; outcome: string; shares: number; avg_price: number };
 type Order = { id: number; agent_id: string; market_id: string; event_id: string; token_id: string; outcome: string; side: string; shares: number; limit_price: number; created_at: number; reason: string };
 type EquityPoint = { timestamp: number; agent_id: string; cash: number; equity: number };
-type Market = { id: string; question: string; slug: string; category: string; event: string; active: boolean; closed: boolean; end_date: string | null; liquidity: number; volume_24h: number };
+type Market = { id: string; question: string; slug: string; category: string; event: string; event_id?: string; active: boolean; closed: boolean; end_date: string | null; liquidity: number; volume_24h: number };
+type BookSummary = { agents: number; aggregate_equity: number; aggregate_starting_cash: number; return_pct: number; trades: number; fees: number; turnover: number; realized_pnl: number; unrealized_pnl: number };
 type Snapshot = {
-  meta: { generated_at: string; disclaimer: string; mode: string; starting_cash_per_agent: number };
-  summary: { agents: number; trades: number; positions: number; pending_orders: number; markets_traded: number; aggregate_equity: number; aggregate_starting_cash: number; agents_with_trades: number };
+  meta: { generated_at: string; disclaimer: string; mode: string; starting_cash_per_agent: number; epoch?: string; epoch_label?: string; strategy_version?: string };
+  summary: { agents: number; trades: number; positions: number; pending_orders: number; markets_traded: number; aggregate_equity: number; aggregate_starting_cash: number; agents_with_trades: number; active_book?: BookSummary; shadow_book?: BookSummary; combined?: BookSummary };
   agents: Agent[]; trades: Trade[]; positions: Position[]; orders: Order[]; equity: EquityPoint[]; markets: Record<string, Market>;
 };
+type Epoch = { id: string; label: string; file: string; current?: boolean; immutable?: boolean };
 type View = 'overview' | 'portfolios' | 'trades' | 'positions' | 'methodology';
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
@@ -28,6 +33,7 @@ const FAMILY_COLORS = ['#b8f34a', '#70d6a5', '#f5c95b', '#82a9ff', '#ee8d6a', '#
 
 function pct(value: number) { return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`; }
 function familyLabel(value: string) { return value.replaceAll('_', ' '); }
+function allocationStatus(agent: Agent) { return agent.allocation_status ?? 'active'; }
 function marketLabel(snapshot: Snapshot, marketId: string) { return snapshot.markets[marketId]?.question ?? `Market ${marketId}`; }
 function marketUrl(snapshot: Snapshot, marketId: string) { const slug = snapshot.markets[marketId]?.slug; return slug ? `https://polymarket.com/event/${slug}` : null; }
 function formatTime(seconds: number) { return new Date(seconds * 1000).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); }
@@ -57,7 +63,7 @@ function AgentDrawer({ snapshot, agent, close, showTrades }: { snapshot: Snapsho
     <div className="drawer-backdrop" role="presentation" onMouseDown={close}>
       <aside className="agent-drawer" role="dialog" aria-modal="true" aria-label={`${agent.name} portfolio`} onMouseDown={(event) => event.stopPropagation()}>
         <div className="drawer-header">
-          <div><span className="eyebrow">{agent.id} / Agent portfolio</span><h2>{agent.name}</h2><span className="family-chip dark-chip">{familyLabel(agent.family)}</span></div>
+          <div><span className="eyebrow">{agent.id} / Agent portfolio</span><h2>{agent.name}</h2><div className="badge-row"><span className="family-chip dark-chip">{familyLabel(agent.family)}</span><span className={`status-chip ${allocationStatus(agent)}`}>{allocationStatus(agent)}</span><span className="tier-chip">{agent.allocation_tier ?? 'legacy'}</span></div></div>
           <button className="icon-button" onClick={close} aria-label="Close portfolio details">×</button>
         </div>
         <div className="drawer-stats">
@@ -74,6 +80,10 @@ function AgentDrawer({ snapshot, agent, close, showTrades }: { snapshot: Snapsho
             <div><span>Min liquidity</span><strong>{money0.format(agent.min_liquidity)}</strong></div><div><span>Horizon</span><strong>{agent.horizon} cycles</strong></div>
           </div>
         </section>
+        {agent.promotion && <section className="drawer-section">
+          <div className="drawer-section-heading"><span className="eyebrow">Promotion gate</span><span>{agent.promotion.eligible ? 'Eligible' : 'Collecting evidence'}</span></div>
+          <div className="promotion-grid"><div><span>Resolved</span><strong>{agent.promotion.resolved_positions}/100</strong></div><div><span>Observed</span><strong>{agent.promotion.days_observed.toFixed(1)}/28d</strong></div><div><span>Categories</span><strong>{agent.promotion.categories}/3</strong></div><div><span>Checks passed</span><strong>{Object.values(agent.promotion.checks).filter(Boolean).length}/{Object.keys(agent.promotion.checks).length}</strong></div></div>
+        </section>}
         <section className="drawer-section">
           <div className="drawer-section-heading"><span className="eyebrow">Equity observations</span><span>{equity.length} marks</span></div>
           <div className="equity-strip" aria-label={`Equity range ${money.format(minEquity)} to ${money.format(maxEquity)}`}>
@@ -98,6 +108,8 @@ function AgentDrawer({ snapshot, agent, close, showTrades }: { snapshot: Snapsho
 
 export default function Home() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [epochs, setEpochs] = useState<Epoch[]>([{ id: 'v2-edge-only', label: 'V2 · Edge-only restart', file: '/data/snapshot.json', current: true }]);
+  const [epochId, setEpochId] = useState('v2-edge-only');
   const [loadError, setLoadError] = useState(false);
   const [view, setView] = useState<View>('overview');
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
@@ -111,7 +123,8 @@ export default function Home() {
   const [positionSearch, setPositionSearch] = useState('');
   const [positionMode, setPositionMode] = useState<'positions' | 'orders'>('positions');
 
-  useEffect(() => { fetch('/data/snapshot.json').then((response) => { if (!response.ok) throw new Error(); return response.json() as Promise<Snapshot>; }).then((data) => setSnapshot(data)).catch(() => setLoadError(true)); }, []);
+  useEffect(() => { fetch('/data/epochs/index.json').then((response) => response.json() as Promise<Epoch[]>).then((data) => { setEpochs(data); const current = data.find((epoch) => epoch.current); if (current) setEpochId(current.id); }).catch(() => undefined); }, []);
+  useEffect(() => { const file = epochs.find((epoch) => epoch.id === epochId)?.file ?? '/data/snapshot.json'; fetch(file).then((response) => { if (!response.ok) throw new Error(); return response.json() as Promise<Snapshot>; }).then((data) => { setLoadError(false); setSnapshot(data); }).catch(() => setLoadError(true)); }, [epochId, epochs]);
   useEffect(() => { document.body.style.overflow = selectedAgent ? 'hidden' : ''; return () => { document.body.style.overflow = ''; }; }, [selectedAgent]);
 
   const families = useMemo(() => [...new Set(snapshot?.agents.map((agent) => agent.family) ?? [])], [snapshot]);
@@ -136,10 +149,13 @@ export default function Home() {
   if (!snapshot) return <main className="loading-screen">Loading PolyAlpha ledger…</main>;
 
   const leaders = [...snapshot.agents].sort((a, b) => b.equity - a.equity);
-  const aggregateReturn = 100 * (snapshot.summary.aggregate_equity / snapshot.summary.aggregate_starting_cash - 1);
+  const fallbackBook: BookSummary = { agents: snapshot.summary.agents, aggregate_equity: snapshot.summary.aggregate_equity, aggregate_starting_cash: snapshot.summary.aggregate_starting_cash, return_pct: 100 * (snapshot.summary.aggregate_equity / snapshot.summary.aggregate_starting_cash - 1), trades: snapshot.summary.trades, fees: snapshot.trades.reduce((sum, trade) => sum + trade.fee, 0), turnover: snapshot.trades.filter((trade) => trade.side === 'BUY' || trade.side === 'SELL').reduce((sum, trade) => sum + trade.shares * trade.price, 0), realized_pnl: 0, unrealized_pnl: snapshot.summary.aggregate_equity - snapshot.summary.aggregate_starting_cash };
+  const headlineBook = snapshot.summary.active_book ?? fallbackBook;
+  const aggregateReturn = headlineBook.return_pct;
+  const isV2 = epochId === 'v2-edge-only';
   const familyMetrics = families.map((family, index) => {
     const agents = snapshot.agents.filter((agent) => agent.family === family); const equity = agents.reduce((sum, agent) => sum + agent.equity, 0); const trades = agents.reduce((sum, agent) => sum + agent.trades, 0);
-    return { family, color: FAMILY_COLORS[index % FAMILY_COLORS.length], return_pct: 100 * (equity / (agents.length * snapshot.meta.starting_cash_per_agent) - 1), trades, active: agents.filter((agent) => agent.trades > 0).length };
+    return { family, color: FAMILY_COLORS[index % FAMILY_COLORS.length], return_pct: 100 * (equity / (agents.length * snapshot.meta.starting_cash_per_agent) - 1), trades, active: agents.filter((agent) => agent.positions > 0).length };
   });
   const pageSize = 50; const maxTradePage = Math.max(0, Math.ceil(filteredTrades.length / pageSize) - 1); const tradeRows = filteredTrades.slice(tradePage * pageSize, (tradePage + 1) * pageSize);
   const navigate = (next: View) => { setView(next); window.scrollTo({ top: 0, behavior: 'smooth' }); };
@@ -153,21 +169,28 @@ export default function Home() {
       </header>
       <nav className="site-nav" aria-label="Dashboard sections">
         {(['overview', 'portfolios', 'trades', 'positions', 'methodology'] as View[]).map((item) => <button key={item} className={view === item ? 'active' : ''} onClick={() => navigate(item)}>{item === 'positions' ? 'Positions & orders' : item}</button>)}
+        <label className="epoch-select"><span>Epoch</span><select value={epochId} onChange={(event) => setEpochId(event.target.value)}>{epochs.map((epoch) => <option key={epoch.id} value={epoch.id}>{epoch.label}{epoch.immutable ? ' · archived' : ''}</option>)}</select></label>
         <span className="snapshot-pill">Snapshot · {new Date(snapshot.meta.generated_at).toLocaleDateString()}</span>
       </nav>
 
       {view === 'overview' && <>
         <section className="hero" id="top">
-          <div className="eyebrow">100-agent prediction-market tournament</div>
+          <div className="eyebrow">{snapshot.meta.epoch_label ?? '100-agent prediction-market tournament'}</div>
           <h1>Every agent.<br />Every position.<br /><em>Nothing hidden.</em></h1>
           <p className="hero-copy">A transparent view into 100 independent Polymarket paper portfolios—built to compare executable alpha, risk, and behavior across the full strategy field.</p>
-          <div className="hero-total"><span>Aggregate paper equity</span><strong>{money0.format(snapshot.summary.aggregate_equity)}</strong><small><ReturnValue value={aggregateReturn} /> from $1,000,000 starting paper capital</small></div>
+          <div className="hero-total"><span>{snapshot.summary.active_book ? 'Active alpha-book equity' : 'Aggregate paper equity'}</span><strong>{money0.format(headlineBook.aggregate_equity)}</strong><small><ReturnValue value={aggregateReturn} /> from {money0.format(headlineBook.aggregate_starting_cash)} starting paper capital</small></div>
         </section>
         <section className="stat-grid" aria-label="Snapshot statistics">
-          {[['Agent portfolios', snapshot.summary.agents], ['Recorded trades', snapshot.summary.trades], ['Open positions', snapshot.summary.positions], ['Markets engaged', snapshot.summary.markets_traded]].map(([label, value]) => <article className="stat-card" key={label}><span>{label}</span><strong>{Number(value).toLocaleString()}</strong></article>)}
+          {[['Agent portfolios', snapshot.summary.agents], [snapshot.summary.shadow_book ? 'Shadow agents' : 'Agents with trades', snapshot.summary.shadow_book?.agents ?? snapshot.summary.agents_with_trades], ['Recorded trades', snapshot.summary.trades], ['Markets engaged', snapshot.summary.markets_traded]].map(([label, value]) => <article className="stat-card" key={label}><span>{label}</span><strong>{Number(value).toLocaleString()}</strong></article>)}
         </section>
+        {snapshot.summary.active_book && <section className="attribution-grid" aria-label="Active book attribution">
+          <article><span>Fees paid</span><strong>{money.format(headlineBook.fees)}</strong><small>Explicit transaction drag</small></article>
+          <article><span>Turnover</span><strong>{money0.format(headlineBook.turnover)}</strong><small>Executed buys + sells</small></article>
+          <article><span>Realized P&amp;L</span><strong><ReturnValue value={100 * headlineBook.realized_pnl / headlineBook.aggregate_starting_cash} /></strong><small>{money.format(headlineBook.realized_pnl)}</small></article>
+          <article><span>Unrealized P&amp;L</span><strong><ReturnValue value={100 * headlineBook.unrealized_pnl / headlineBook.aggregate_starting_cash} /></strong><small>{money.format(headlineBook.unrealized_pnl)}</small></article>
+        </section>}
         <section className="panel">
-          <div className="section-heading"><div><span className="eyebrow">Strategy field</span><h2>Ten independent alpha families</h2></div><p className="section-note">Each family contains ten parameter variants. Every agent now carries a paper position; discovery probes remain distinguishable from threshold-clearing alpha trades.</p></div>
+          <div className="section-heading"><div><span className="eyebrow">Strategy field</span><h2>Ten independent alpha families</h2></div><p className="section-note">{isV2 ? 'Agents may remain flat indefinitely. Only threshold-clearing, after-cost opportunities can enter the active book; crowd bias remains in shadow.' : 'Archived forced-activation results are preserved exactly as produced for auditability.'}</p></div>
           <div className="family-grid">{familyMetrics.map((item) => <article className="family-card" key={item.family}><span className="family-index" style={{ background: item.color }} /><div><h3>{familyLabel(item.family)}</h3><span>{item.active}/10 active agents</span></div><strong><ReturnValue value={item.return_pct} /></strong><small>{item.trades.toLocaleString()} trades</small></article>)}</div>
         </section>
         <section className="panel">
@@ -186,7 +209,7 @@ export default function Home() {
         <div className="page-title"><span className="eyebrow">Complete execution ledger</span><h1>Trade explorer</h1><p>All paper fills, including price, size, fees, execution style, signal rationale, agent, and underlying market.</p></div>
         <div className="toolbar"><label className="search-field"><span>Search trades</span><input value={tradeSearch} onChange={(event) => { setTradeSearch(event.target.value); setTradePage(0); }} placeholder="Market, rationale, outcome…" /></label><label><span>Agent</span><select value={tradeAgent} onChange={(event) => { setTradeAgent(event.target.value); setTradePage(0); }}><option value="all">All 100 agents</option>{snapshot.agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.id} · {agent.name}</option>)}</select></label><label><span>Side</span><select value={tradeSide} onChange={(event) => { setTradeSide(event.target.value); setTradePage(0); }}><option value="all">All sides</option>{[...new Set(snapshot.trades.map((trade) => trade.side))].map((side) => <option key={side}>{side}</option>)}</select></label><button className="outline-button export-button" onClick={() => downloadCsv('polyalpha-trades.csv', filteredTrades)}>Export CSV</button></div>
         <div className="result-bar"><span>{filteredTrades.length.toLocaleString()} matching trades</span><span>Page {Math.min(tradePage + 1, maxTradePage + 1)} of {maxTradePage + 1}</span></div>
-        <div className="table-shell"><table><thead><tr><th>Time</th><th>Agent</th><th>Market</th><th>Action</th><th>Shares</th><th>Price</th><th>Fee</th><th>Execution</th><th>Signal rationale</th></tr></thead><tbody>{tradeRows.map((trade) => <tr key={trade.id}><td>{formatTime(trade.timestamp)}</td><td><button className="table-link" onClick={() => setSelectedAgent(snapshot.agents.find((agent) => agent.id === trade.agent_id) ?? null)}>{trade.agent_id}</button></td><td className="market-cell">{marketUrl(snapshot, trade.market_id) ? <a href={marketUrl(snapshot, trade.market_id)!} target="_blank" rel="noreferrer">{marketLabel(snapshot, trade.market_id)} ↗</a> : marketLabel(snapshot, trade.market_id)}</td><td><span className={`side-chip ${trade.side.toLowerCase()}`}>{trade.side}</span> {trade.outcome}</td><td>{number.format(trade.shares)}</td><td>{trade.price.toFixed(4)}</td><td>{money.format(trade.fee)}</td><td>{trade.execution}</td><td className="reason-cell">{trade.reason}</td></tr>)}</tbody></table></div>
+        <div className="table-shell"><table><thead><tr><th>Time</th><th>Agent</th><th>Market</th><th>Action</th><th>Shares</th><th>Price</th><th>Fee</th><th>Net edge</th><th>Decision</th><th>Signal rationale</th></tr></thead><tbody>{tradeRows.map((trade) => <tr key={trade.id}><td>{formatTime(trade.timestamp)}</td><td><button className="table-link" onClick={() => setSelectedAgent(snapshot.agents.find((agent) => agent.id === trade.agent_id) ?? null)}>{trade.agent_id}</button></td><td className="market-cell">{marketUrl(snapshot, trade.market_id) ? <a href={marketUrl(snapshot, trade.market_id)!} target="_blank" rel="noreferrer">{marketLabel(snapshot, trade.market_id)} ↗</a> : marketLabel(snapshot, trade.market_id)}</td><td><span className={`side-chip ${trade.side.toLowerCase()}`}>{trade.side}</span> {trade.outcome}</td><td>{number.format(trade.shares)}</td><td>{trade.price.toFixed(4)}</td><td>{money.format(trade.fee)}</td><td>{trade.net_edge == null ? '—' : pct(trade.net_edge * 100)}</td><td>{trade.decision_class ?? trade.execution}</td><td className="reason-cell">{trade.reason}</td></tr>)}</tbody></table></div>
         <div className="pagination"><button disabled={tradePage === 0} onClick={() => setTradePage((page) => Math.max(0, page - 1))}>← Previous</button><button disabled={tradePage >= maxTradePage} onClick={() => setTradePage((page) => Math.min(maxTradePage, page + 1))}>Next →</button></div>
       </section>}
 
@@ -199,7 +222,7 @@ export default function Home() {
 
       {view === 'methodology' && <section className="page-section methodology-page">
         <div className="page-title"><span className="eyebrow">How to read the experiment</span><h1>Methodology, costs & risk</h1><p>The dashboard exposes a research tournament—not a claim of proven returns. Here is exactly how the paper results were produced.</p></div>
-        <div className="method-grid"><article><span>01</span><h2>All-market observation</h2><p>Every open, active, order-accepting binary Polymarket market enters each cycle. A market must have usable books for both outcomes before it can produce a fill.</p></article><article><span>02</span><h2>Discovery, then edge</h2><p>Every otherwise-flat agent opens one labeled discovery position capped at 0.25% of equity. Larger allocations require estimated edge after bid/ask prices, fees, spread, liquidity, and minimum size.</p></article><article><span>03</span><h2>Conservative accounting</h2><p>Holdings are marked at liquidation bids. Passive maker orders fill only after a later snapshot crosses or moves through the quote. Rewards and rebates are not credited.</p></article><article><span>04</span><h2>Controlled aggression</h2><p>Normal targets range from 0.75% to 1.80%, with 0.20× Kelly, 3% per-market and 12% per-event caps, up to 50 markets, and an 18% drawdown kill switch.</p></article></div>
+        {isV2 ? <div className="method-grid"><article><span>01</span><h2>Edge-only entry</h2><p>Every usable market is ranked by net executable edge. Agents remain flat unless the best side clears spread, fees, liquidity, minimum size, and the full strategy threshold.</p></article><article><span>02</span><h2>Hysteresis & cooldown</h2><p>Positive-edge positions are held below the entry threshold, exits occur at zero edge, and 30-minute re-entry cooldowns suppress churn unless edge doubles the threshold.</p></article><article><span>03</span><h2>Conservative accounting</h2><p>Holdings are marked at liquidation bids. Passive maker orders require a later fill-through. Rewards and rebates are excluded.</p></article><article><span>04</span><h2>Balanced alpha risk</h2><p>Probation sizing is capped at 0.5%, with 0.15× Kelly, 2% per market, 8% per event, 30 markets, three new positions per cycle, and a 12% kill switch.</p></article></div> : <div className="warning-card"><div className="warning-mark">V1</div><div><h2>Forced-activation archive</h2><p>This immutable epoch required otherwise-flat agents to open discovery positions. Its spread, fee, and crowd-bias losses are retained as evidence for why v2 moved to edge-only entry.</p></div></div>}
         <div className="method-section"><span className="eyebrow">The ten hypotheses</span><div className="hypothesis-list">{families.map((family, index) => { const agent = snapshot.agents.find((row) => row.family === family)!; return <div key={family}><span>{String(index + 1).padStart(2, '0')}</span><div><h3>{familyLabel(family)}</h3><p>{agent.strategy}</p></div><strong>10 variants</strong></div>; })}</div></div>
         <div className="warning-card"><div className="warning-mark">!</div><div><h2>Paper results are not investable evidence.</h2><p>This snapshot is short, unresolved, and deliberately transparent about inactive agents and early losses. Robust strategy selection requires substantially more forward data, complete market resolutions, probability-calibration scoring, and held-out evaluation.</p></div></div>
       </section>}
@@ -211,5 +234,5 @@ export default function Home() {
 }
 
 function PortfolioTable({ agents, select, expanded = false }: { agents: Agent[]; select: (agent: Agent) => void; expanded?: boolean }) {
-  return <div className="table-shell"><table><thead><tr><th>Rank</th><th>Agent</th><th>Family</th><th>Equity</th><th>Return</th><th>Drawdown</th><th>Cash</th><th>Positions</th><th>Trades</th>{expanded && <th>Explore</th>}</tr></thead><tbody>{agents.map((agent, index) => <tr key={agent.id} className="clickable-row" onClick={() => select(agent)}><td className="rank">{String(index + 1).padStart(2, '0')}</td><td><strong>{agent.id}</strong><span className="agent-name">{agent.name}</span></td><td><span className="family-chip">{familyLabel(agent.family)}</span></td><td>{money.format(agent.equity)}</td><td><ReturnValue value={agent.return_pct} /></td><td>{agent.drawdown_pct.toFixed(2)}%</td><td>{money.format(agent.cash)}</td><td>{agent.positions}</td><td>{agent.trades.toLocaleString()}</td>{expanded && <td><button className="table-link" onClick={(event) => { event.stopPropagation(); select(agent); }}>Open →</button></td>}</tr>)}</tbody></table></div>;
+  return <div className="table-shell"><table><thead><tr><th>Rank</th><th>Agent</th><th>Book</th><th>Family</th><th>Equity</th><th>Return</th><th>Drawdown</th><th>Cash</th><th>Positions</th><th>Trades</th>{expanded && <th>Explore</th>}</tr></thead><tbody>{agents.map((agent, index) => <tr key={agent.id} className="clickable-row" onClick={() => select(agent)}><td className="rank">{String(index + 1).padStart(2, '0')}</td><td><strong>{agent.id}</strong><span className="agent-name">{agent.name}</span></td><td><span className={`status-chip ${allocationStatus(agent)}`}>{agent.allocation_status ?? 'legacy'}</span></td><td><span className="family-chip">{familyLabel(agent.family)}</span></td><td>{money.format(agent.equity)}</td><td><ReturnValue value={agent.return_pct} /></td><td>{agent.drawdown_pct.toFixed(2)}%</td><td>{money.format(agent.cash)}</td><td>{agent.positions}</td><td>{agent.trades.toLocaleString()}</td>{expanded && <td><button className="table-link" onClick={(event) => { event.stopPropagation(); select(agent); }}>Open →</button></td>}</tr>)}</tbody></table></div>;
 }
