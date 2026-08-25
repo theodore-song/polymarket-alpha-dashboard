@@ -167,7 +167,7 @@ export default function Home() {
           {[['Agent portfolios', snapshot.summary.agents], ['Recorded trades', snapshot.summary.trades], ['Open positions', snapshot.summary.positions], ['Markets engaged', snapshot.summary.markets_traded]].map(([label, value]) => <article className="stat-card" key={label}><span>{label}</span><strong>{Number(value).toLocaleString()}</strong></article>)}
         </section>
         <section className="panel">
-          <div className="section-heading"><div><span className="eyebrow">Strategy field</span><h2>Ten independent alpha families</h2></div><p className="section-note">Each family contains ten parameter variants. Flat agents are visible—they are evidence that the trade gates are working.</p></div>
+          <div className="section-heading"><div><span className="eyebrow">Strategy field</span><h2>Ten independent alpha families</h2></div><p className="section-note">Each family contains ten parameter variants. Every agent now carries a paper position; discovery probes remain distinguishable from threshold-clearing alpha trades.</p></div>
           <div className="family-grid">{familyMetrics.map((item) => <article className="family-card" key={item.family}><span className="family-index" style={{ background: item.color }} /><div><h3>{familyLabel(item.family)}</h3><span>{item.active}/10 active agents</span></div><strong><ReturnValue value={item.return_pct} /></strong><small>{item.trades.toLocaleString()} trades</small></article>)}</div>
         </section>
         <section className="panel">
