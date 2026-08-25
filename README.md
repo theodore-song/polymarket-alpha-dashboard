@@ -2,6 +2,10 @@
 
 Public analytics for the PolyAlpha 100-agent Polymarket paper-trading tournament.
 
+- Live dashboard: https://polymarket-alpha-dashboard-five.vercel.app
+- GitHub repository: https://github.com/theodore-song/polymarket-alpha-dashboard
+- Published snapshot: 100 agents, 815 trades, 415 open positions, 249 resting orders, and 94 engaged markets.
+
 The dashboard exposes:
 
 - all 100 virtual portfolios and strategy parameters;
