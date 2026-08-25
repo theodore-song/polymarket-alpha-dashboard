@@ -229,6 +229,11 @@ def main() -> None:
             "aggregate_equity": sum(float(agent["equity"]) for agent in agents),
             "aggregate_starting_cash": sum(float(agent["initial_cash"]) for agent in agent_rows),
             "agents_with_trades": sum(1 for agent in agents if agent["trades"] > 0),
+            "agents_with_positions": sum(1 for agent in agents if agent["positions"] > 0),
+            "decision_classes": {
+                key: sum(1 for trade in trades if (trade.get("decision_class") or "legacy") == key)
+                for key in sorted({str(trade.get("decision_class") or "legacy") for trade in trades})
+            },
             "active_book": active_book,
             "shadow_book": shadow_book,
             "combined": combined,

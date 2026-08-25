@@ -4,7 +4,7 @@ Public analytics for the PolyAlpha 100-agent Polymarket paper-trading tournament
 
 - Live dashboard: https://polymarket-alpha-dashboard-five.vercel.app
 - GitHub repository: https://github.com/theodore-song/polymarket-alpha-dashboard
-- Current snapshot: v2 edge-only restart with 90 active-book agents and 10 crowd-bias shadow agents.
+- Current snapshot: v2 with 100/100 agents trading and positioned, including 90 active-book agents and 10 crowd-bias shadow agents.
 - Immutable archive: v1 forced-activation ledger with all 1,461 trades and 609 positions preserved for audit.
 
 The dashboard exposes:

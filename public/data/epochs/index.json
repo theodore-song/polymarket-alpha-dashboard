@@ -1,7 +1,7 @@
 [
   {
     "id": "v2-edge-only",
-    "label": "V2 · Edge-only restart",
+    "label": "V2 · 100-agent activation",
     "file": "/data/snapshot.json",
     "current": true,
     "immutable": false

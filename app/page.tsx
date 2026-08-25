@@ -20,7 +20,7 @@ type Market = { id: string; question: string; slug: string; category: string; ev
 type BookSummary = { agents: number; aggregate_equity: number; aggregate_starting_cash: number; return_pct: number; trades: number; fees: number; turnover: number; realized_pnl: number; unrealized_pnl: number };
 type Snapshot = {
   meta: { generated_at: string; disclaimer: string; mode: string; starting_cash_per_agent: number; epoch?: string; epoch_label?: string; strategy_version?: string };
-  summary: { agents: number; trades: number; positions: number; pending_orders: number; markets_traded: number; aggregate_equity: number; aggregate_starting_cash: number; agents_with_trades: number; active_book?: BookSummary; shadow_book?: BookSummary; combined?: BookSummary };
+  summary: { agents: number; trades: number; positions: number; pending_orders: number; markets_traded: number; aggregate_equity: number; aggregate_starting_cash: number; agents_with_trades: number; agents_with_positions?: number; decision_classes?: Record<string, number>; active_book?: BookSummary; shadow_book?: BookSummary; combined?: BookSummary };
   agents: Agent[]; trades: Trade[]; positions: Position[]; orders: Order[]; equity: EquityPoint[]; markets: Record<string, Market>;
 };
 type Epoch = { id: string; label: string; file: string; current?: boolean; immutable?: boolean };
@@ -108,7 +108,7 @@ function AgentDrawer({ snapshot, agent, close, showTrades }: { snapshot: Snapsho
 
 export default function Home() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [epochs, setEpochs] = useState<Epoch[]>([{ id: 'v2-edge-only', label: 'V2 · Edge-only restart', file: '/data/snapshot.json', current: true }]);
+  const [epochs, setEpochs] = useState<Epoch[]>([{ id: 'v2-edge-only', label: 'V2 · 100-agent activation', file: '/data/snapshot.json', current: true }]);
   const [epochId, setEpochId] = useState('v2-edge-only');
   const [loadError, setLoadError] = useState(false);
   const [view, setView] = useState<View>('overview');
@@ -177,11 +177,11 @@ export default function Home() {
         <section className="hero" id="top">
           <div className="eyebrow">{snapshot.meta.epoch_label ?? '100-agent prediction-market tournament'}</div>
           <h1>Every agent.<br />Every position.<br /><em>Nothing hidden.</em></h1>
-          <p className="hero-copy">A transparent view into 100 independent Polymarket paper portfolios—built to compare executable alpha, risk, and behavior across the full strategy field.</p>
+          <p className="hero-copy">A transparent view into 100 independently trading Polymarket paper portfolios—separating mandatory activity from threshold-clearing alpha.</p>
           <div className="hero-total"><span>{snapshot.summary.active_book ? 'Active alpha-book equity' : 'Aggregate paper equity'}</span><strong>{money0.format(headlineBook.aggregate_equity)}</strong><small><ReturnValue value={aggregateReturn} /> from {money0.format(headlineBook.aggregate_starting_cash)} starting paper capital</small></div>
         </section>
         <section className="stat-grid" aria-label="Snapshot statistics">
-          {[['Agent portfolios', snapshot.summary.agents], [snapshot.summary.shadow_book ? 'Shadow agents' : 'Agents with trades', snapshot.summary.shadow_book?.agents ?? snapshot.summary.agents_with_trades], ['Recorded trades', snapshot.summary.trades], ['Markets engaged', snapshot.summary.markets_traded]].map(([label, value]) => <article className="stat-card" key={label}><span>{label}</span><strong>{Number(value).toLocaleString()}</strong></article>)}
+          {[['Agent portfolios', snapshot.summary.agents], ['Agents positioned', snapshot.summary.agents_with_positions ?? snapshot.summary.agents_with_trades], ['Recorded trades', snapshot.summary.trades], ['Open positions', snapshot.summary.positions]].map(([label, value]) => <article className="stat-card" key={label}><span>{label}</span><strong>{Number(value).toLocaleString()}</strong></article>)}
         </section>
         {snapshot.summary.active_book && <section className="attribution-grid" aria-label="Active book attribution">
           <article><span>Fees paid</span><strong>{money.format(headlineBook.fees)}</strong><small>Explicit transaction drag</small></article>
@@ -190,7 +190,7 @@ export default function Home() {
           <article><span>Unrealized P&amp;L</span><strong><ReturnValue value={100 * headlineBook.unrealized_pnl / headlineBook.aggregate_starting_cash} /></strong><small>{money.format(headlineBook.unrealized_pnl)}</small></article>
         </section>}
         <section className="panel">
-          <div className="section-heading"><div><span className="eyebrow">Strategy field</span><h2>Ten independent alpha families</h2></div><p className="section-note">{isV2 ? 'Agents may remain flat indefinitely. Only threshold-clearing, after-cost opportunities can enter the active book; crowd bias remains in shadow.' : 'Archived forced-activation results are preserved exactly as produced for auditability.'}</p></div>
+          <div className="section-heading"><div><span className="eyebrow">Strategy field</span><h2>Ten independent alpha families</h2></div><p className="section-note">{isV2 ? 'All 100 agents hold paper positions. Mandatory 0.10% activation fills are labeled separately; larger allocations still require after-cost edge, and crowd bias remains in shadow.' : 'Archived forced-activation results are preserved exactly as produced for auditability.'}</p></div>
           <div className="family-grid">{familyMetrics.map((item) => <article className="family-card" key={item.family}><span className="family-index" style={{ background: item.color }} /><div><h3>{familyLabel(item.family)}</h3><span>{item.active}/10 active agents</span></div><strong><ReturnValue value={item.return_pct} /></strong><small>{item.trades.toLocaleString()} trades</small></article>)}</div>
         </section>
         <section className="panel">
@@ -222,7 +222,7 @@ export default function Home() {
 
       {view === 'methodology' && <section className="page-section methodology-page">
         <div className="page-title"><span className="eyebrow">How to read the experiment</span><h1>Methodology, costs & risk</h1><p>The dashboard exposes a research tournament—not a claim of proven returns. Here is exactly how the paper results were produced.</p></div>
-        {isV2 ? <div className="method-grid"><article><span>01</span><h2>Edge-only entry</h2><p>Every usable market is ranked by net executable edge. Agents remain flat unless the best side clears spread, fees, liquidity, minimum size, and the full strategy threshold.</p></article><article><span>02</span><h2>Hysteresis & cooldown</h2><p>Positive-edge positions are held below the entry threshold, exits occur at zero edge, and 30-minute re-entry cooldowns suppress churn unless edge doubles the threshold.</p></article><article><span>03</span><h2>Conservative accounting</h2><p>Holdings are marked at liquidation bids. Passive maker orders require a later fill-through. Rewards and rebates are excluded.</p></article><article><span>04</span><h2>Balanced alpha risk</h2><p>Probation sizing is capped at 0.5%, with 0.15× Kelly, 2% per market, 8% per event, 30 markets, three new positions per cycle, and a 12% kill switch.</p></article></div> : <div className="warning-card"><div className="warning-mark">V1</div><div><h2>Forced-activation archive</h2><p>This immutable epoch required otherwise-flat agents to open discovery positions. Its spread, fee, and crowd-bias losses are retained as evidence for why v2 moved to edge-only entry.</p></div></div>}
+        {isV2 ? <div className="method-grid"><article><span>01</span><h2>Guaranteed activation</h2><p>Every flat agent opens one labeled 0.10% paper position in a liquid 10¢–90¢ contract with relative spread no greater than 10%. The fill creates observable performance but is never presented as alpha.</p></article><article><span>02</span><h2>Edge-only scaling</h2><p>Beyond the activation baseline, markets are ranked by net executable edge. Larger positions require spread, fees, liquidity, minimum size, and the full strategy threshold.</p></article><article><span>03</span><h2>Hysteresis & accounting</h2><p>Alpha positions use hysteresis and cooldowns. All holdings are marked at liquidation bids; maker rewards and rebates are excluded.</p></article><article><span>04</span><h2>Balanced alpha risk</h2><p>Probation sizing is capped at 0.5%, with 0.15× Kelly, 2% per market, 8% per event, 30 markets, three alpha entries per cycle, and a 12% kill switch.</p></article></div> : <div className="warning-card"><div className="warning-mark">V1</div><div><h2>Forced-activation archive</h2><p>This immutable epoch required larger discovery positions without relative-spread filtering. Its cost and crowd-bias losses remain visible for comparison with v2.</p></div></div>}
         <div className="method-section"><span className="eyebrow">The ten hypotheses</span><div className="hypothesis-list">{families.map((family, index) => { const agent = snapshot.agents.find((row) => row.family === family)!; return <div key={family}><span>{String(index + 1).padStart(2, '0')}</span><div><h3>{familyLabel(family)}</h3><p>{agent.strategy}</p></div><strong>10 variants</strong></div>; })}</div></div>
         <div className="warning-card"><div className="warning-mark">!</div><div><h2>Paper results are not investable evidence.</h2><p>This snapshot is short, unresolved, and deliberately transparent about inactive agents and early losses. Robust strategy selection requires substantially more forward data, complete market resolutions, probability-calibration scoring, and held-out evaluation.</p></div></div>
       </section>}
