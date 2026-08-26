@@ -25,7 +25,7 @@ export async function GET(
 
   // Resolve the branch head first, then fetch by immutable commit. GitHub's raw
   // branch URLs can remain stale at an individual CDN point after a force-push.
-  const refs = await fetch(`${RUNTIME_REFS_URL}&runtime=${Date.now()}`, {
+  const refs = await fetch(RUNTIME_REFS_URL, {
     cache: 'no-store',
     headers: { Accept: 'application/x-git-upload-pack-advertisement', 'Cache-Control': 'no-cache' },
   });
