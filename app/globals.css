@@ -23,6 +23,8 @@ button, input, select { font: inherit; }
 .brand-mark { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 10px; background: var(--ink); color: var(--lime); font: 700 15px/1 var(--font-geist-mono), monospace; }
 .header-meta { font: 600 12px/1 var(--font-geist-mono), monospace; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 .status-dot { display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: #63b641; box-shadow: 0 0 0 4px #63b64122; }
+.status-dot.stale { background: #d89a34; box-shadow: 0 0 0 4px #d89a3422; }
+.status-dot.degraded { background: var(--red); box-shadow: 0 0 0 4px #bd3d2a22; }
 
 main { min-height: 100vh; }
 .hero { position: relative; min-height: 600px; padding: clamp(70px, 10vw, 130px) clamp(20px, 5vw, 72px) 90px; background: var(--ink); color: white; overflow: hidden; }
@@ -35,6 +37,21 @@ main { min-height: 100vh; }
 .hero-total { position: absolute; z-index: 2; right: clamp(20px, 6vw, 90px); bottom: 76px; width: min(340px, calc(100% - 40px)); border-top: 1px solid #ffffff36; padding-top: 16px; }
 .hero-total span, .hero-total small { display: block; color: #8e948b; font: 600 11px/1.4 var(--font-geist-mono), monospace; text-transform: uppercase; letter-spacing: .08em; }
 .hero-total strong { display: block; margin: 7px 0; font-size: clamp(35px, 4vw, 52px); letter-spacing: -.055em; }
+
+.runtime-banner { position: relative; display: grid; grid-template-columns: minmax(270px, 1.7fr) repeat(3, minmax(130px, 1fr)) auto; gap: 1px; margin: 30px clamp(16px, 5vw, 72px) 0; border: 1px solid #b9c7a8; border-radius: 15px; overflow: hidden; background: #b9c7a8; }
+.runtime-banner > div { min-height: 118px; padding: 22px; background: #f8fbf2; }
+.runtime-banner > div > span, .runtime-banner > div > small { display: block; color: var(--muted); font: 650 9px/1.4 var(--font-geist-mono), monospace; text-transform: uppercase; }
+.runtime-banner > div > strong { display: block; margin: 15px 0 6px; font: 800 24px/1 var(--font-geist-mono), monospace; }
+.runtime-banner .runtime-primary { background: var(--forest); color: white; }
+.runtime-banner .runtime-primary .eyebrow { color: var(--lime); }
+.runtime-banner .runtime-primary > strong { color: var(--lime); letter-spacing: .09em; }
+.runtime-banner .runtime-primary > small { color: #aebdb5; text-transform: none; }
+.runtime-actions { display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+.runtime-actions button, .runtime-actions a { padding: 10px 12px; border: 1px solid #b9c7a8; border-radius: 8px; background: white; cursor: pointer; font: 700 9px/1 var(--font-geist-mono), monospace; text-align: center; text-transform: uppercase; }
+.runtime-actions button:hover, .runtime-actions a:hover { border-color: var(--ink); background: var(--ink); color: var(--lime); }
+.runtime-banner.stale, .runtime-banner.degraded { border-color: #dfb49f; background: #dfb49f; }
+.runtime-banner.stale .runtime-primary, .runtime-banner.degraded .runtime-primary { background: #4a231d; }
+.runtime-warning { grid-column: 1 / -1; margin: 0; padding: 13px 20px; background: #fff0e9; color: #733d31; font: 650 11px/1.45 var(--font-geist-mono), monospace; }
 
 .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--line); }
 .stat-card { min-height: 164px; padding: 34px clamp(20px, 3vw, 44px); border-right: 1px solid var(--line); background: var(--card); }
@@ -192,6 +209,8 @@ footer p { max-width: 600px; margin: 0; color: var(--muted); font-size: 12px; li
 footer > span { color: var(--muted); font: 600 9px/1.4 var(--font-geist-mono), monospace; text-align: right; text-transform: uppercase; }
 
 @media (max-width: 1100px) {
+  .runtime-banner { grid-template-columns: repeat(2, 1fr); }
+  .runtime-banner .runtime-primary { grid-column: 1 / -1; }
   .attribution-grid { grid-template-columns: repeat(2, 1fr); }
   .attribution-grid article:nth-child(2) { border-right: 0; }
   .attribution-grid article:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
@@ -205,6 +224,8 @@ footer > span { color: var(--muted); font: 600 9px/1.4 var(--font-geist-mono), m
 }
 
 @media (max-width: 700px) {
+  .runtime-banner { grid-template-columns: 1fr; }
+  .runtime-banner .runtime-primary, .runtime-warning { grid-column: auto; }
   .site-nav { padding-left: 8px; padding-right: 8px; }
   .snapshot-pill { display: none; }
   .epoch-select span { display: none; }

@@ -1,7 +1,7 @@
 [
   {
     "id": "v2-edge-only",
-    "label": "V2 · 100-agent activation",
+    "label": "V2.1 · Continuous five-minute trading",
     "file": "/data/snapshot.json",
     "current": true,
     "immutable": false

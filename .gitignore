@@ -38,3 +38,8 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+/runtime/
+/engine/data/
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal

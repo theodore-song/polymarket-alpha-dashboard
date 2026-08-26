@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "polyalpha-lab"
+version = "0.1.0"
+description = "A 100-agent, market-wide Polymarket paper-trading research system"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+polyalpha = "polyalpha.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

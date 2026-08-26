@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 
 type Agent = {
   id: string; name: string; family: string; variant: number; strategy: string;
@@ -10,6 +11,7 @@ type Agent = {
   trades: number; positions: number; pending_orders: number; cost_exposure: number;
   allocation_status?: 'active' | 'shadow'; allocation_tier?: 'probation' | 'validated'; strategy_version?: string;
   fees_paid?: number; turnover?: number; liquidation_value?: number; realized_pnl?: number; unrealized_pnl?: number;
+  alpha_trades?: number; heartbeat_trades?: number; activation_trades?: number;
   promotion?: { eligible: boolean; resolved_positions: number; days_observed: number; categories: number; edge_lcb: number | null; brier_improvement: number | null; max_event_profit_share: number | null; checks: Record<string, boolean> };
 };
 type Trade = { id: number; timestamp: number; agent_id: string; market_id: string; token_id: string; outcome: string; side: string; shares: number; price: number; fee: number; execution: string; reason: string; net_edge?: number | null; spread?: number | null; decision_class?: string | null };
@@ -17,10 +19,12 @@ type Position = { agent_id: string; market_id: string; event_id: string; token_i
 type Order = { id: number; agent_id: string; market_id: string; event_id: string; token_id: string; outcome: string; side: string; shares: number; limit_price: number; created_at: number; reason: string };
 type EquityPoint = { timestamp: number; agent_id: string; cash: number; equity: number };
 type Market = { id: string; question: string; slug: string; category: string; event: string; event_id?: string; active: boolean; closed: boolean; end_date: string | null; liquidity: number; volume_24h: number };
-type BookSummary = { agents: number; aggregate_equity: number; aggregate_starting_cash: number; return_pct: number; trades: number; fees: number; turnover: number; realized_pnl: number; unrealized_pnl: number };
+type BookSummary = { agents: number; aggregate_equity: number; aggregate_starting_cash: number; return_pct: number; trades: number; alpha_trades?: number; heartbeat_trades?: number; activation_trades?: number; fees: number; turnover: number; realized_pnl: number; unrealized_pnl: number };
+type Cycle = { cycle_id: string; started_at: number; finished_at: number | null; status: string; agents_evaluated: number; markets_discovered: number; markets_with_books: number; alpha_fills: number; heartbeat_fills: number; maker_fills: number; error?: string | null };
+type Health = { meta: { generated_at: string; snapshot_version: number; cycle_id: string }; status: 'healthy' | 'stale' | 'degraded'; last_success_at: number | null; last_attempt_at: number | null; next_expected_at: number | null; age_seconds: number | null; cycle: Cycle | null; last_attempt: Cycle | null; error?: string };
 type Snapshot = {
-  meta: { generated_at: string; disclaimer: string; mode: string; starting_cash_per_agent: number; epoch?: string; epoch_label?: string; strategy_version?: string };
-  summary: { agents: number; trades: number; positions: number; pending_orders: number; markets_traded: number; aggregate_equity: number; aggregate_starting_cash: number; agents_with_trades: number; agents_with_positions?: number; decision_classes?: Record<string, number>; active_book?: BookSummary; shadow_book?: BookSummary; combined?: BookSummary };
+  meta: { generated_at: string; disclaimer: string; mode: string; starting_cash_per_agent: number; epoch?: string; epoch_label?: string; strategy_version?: string; snapshot_version?: number; cycle_id?: string };
+  summary: { agents: number; trades: number; positions: number; pending_orders: number; markets_traded: number; aggregate_equity: number; aggregate_starting_cash: number; agents_with_trades: number; agents_with_positions?: number; agents_evaluated?: number; latest_cycle?: Cycle | null; decision_classes?: Record<string, number>; active_book?: BookSummary; shadow_book?: BookSummary; combined?: BookSummary };
   agents: Agent[]; trades: Trade[]; positions: Position[]; orders: Order[]; equity: EquityPoint[]; markets: Record<string, Market>;
 };
 type Epoch = { id: string; label: string; file: string; current?: boolean; immutable?: boolean };
@@ -37,6 +41,7 @@ function allocationStatus(agent: Agent) { return agent.allocation_status ?? 'act
 function marketLabel(snapshot: Snapshot, marketId: string) { return snapshot.markets[marketId]?.question ?? `Market ${marketId}`; }
 function marketUrl(snapshot: Snapshot, marketId: string) { const slug = snapshot.markets[marketId]?.slug; return slug ? `https://polymarket.com/event/${slug}` : null; }
 function formatTime(seconds: number) { return new Date(seconds * 1000).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+function formatAge(seconds: number | null | undefined) { if (seconds == null) return 'waiting for first live cycle'; if (seconds < 60) return `${Math.round(seconds)}s ago`; if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`; return `${Math.floor(seconds / 3600)}h ago`; }
 
 function downloadCsv(filename: string, rows: object[]) {
   if (!rows.length) return;
@@ -108,7 +113,7 @@ function AgentDrawer({ snapshot, agent, close, showTrades }: { snapshot: Snapsho
 
 export default function Home() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [epochs, setEpochs] = useState<Epoch[]>([{ id: 'v2-edge-only', label: 'V2 · 100-agent activation', file: '/data/snapshot.json', current: true }]);
+  const [epochs, setEpochs] = useState<Epoch[]>([{ id: 'v2-edge-only', label: 'V2.1 · Continuous five-minute trading', file: '/data/snapshot.json', current: true }]);
   const [epochId, setEpochId] = useState('v2-edge-only');
   const [loadError, setLoadError] = useState(false);
   const [view, setView] = useState<View>('overview');
@@ -122,9 +127,66 @@ export default function Home() {
   const [tradePage, setTradePage] = useState(0);
   const [positionSearch, setPositionSearch] = useState('');
   const [positionMode, setPositionMode] = useState<'positions' | 'orders'>('positions');
+  const [health, setHealth] = useState<Health | null>(null);
+  const [fullTradesCycle, setFullTradesCycle] = useState<string | null>(null);
+  const [fullEquityCycle, setFullEquityCycle] = useState<string | null>(null);
+  const [runtimeFallback, setRuntimeFallback] = useState(false);
+  const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => { fetch('/data/epochs/index.json').then((response) => response.json() as Promise<Epoch[]>).then((data) => { setEpochs(data); const current = data.find((epoch) => epoch.current); if (current) setEpochId(current.id); }).catch(() => undefined); }, []);
-  useEffect(() => { const file = epochs.find((epoch) => epoch.id === epochId)?.file ?? '/data/snapshot.json'; fetch(file).then((response) => { if (!response.ok) throw new Error(); return response.json() as Promise<Snapshot>; }).then((data) => { setLoadError(false); setSnapshot(data); }).catch(() => setLoadError(true)); }, [epochId, epochs]);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const epoch = epochs.find((item) => item.id === epochId);
+      const live = epochId === 'v2-edge-only';
+      try {
+        const response = await fetch(live ? `/api/runtime/dashboard?t=${Date.now()}` : (epoch?.file ?? '/data/snapshot.json'), { cache: 'no-store' });
+        if (!response.ok) throw new Error('runtime unavailable');
+        const data = await response.json() as Snapshot;
+        if (!cancelled) {
+          setSnapshot(data); setLoadError(false); setRuntimeFallback(false);
+          setFullTradesCycle(null); setFullEquityCycle(null);
+        }
+      } catch {
+        if (!live) { if (!cancelled) setLoadError(true); return; }
+        try {
+          const fallback = await fetch('/data/snapshot.json', { cache: 'no-store' });
+          if (!fallback.ok) throw new Error();
+          const data = await fallback.json() as Snapshot;
+          if (!cancelled) { setSnapshot(data); setLoadError(false); setRuntimeFallback(true); }
+        } catch { if (!cancelled) setLoadError(true); }
+      }
+    };
+    void load();
+    const timer = epochId === 'v2-edge-only' ? window.setInterval(load, 60_000) : undefined;
+    return () => { cancelled = true; if (timer) window.clearInterval(timer); };
+  }, [epochId, epochs, refreshTick]);
+  useEffect(() => {
+    if (epochId !== 'v2-edge-only') return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const response = await fetch(`/api/runtime/health?t=${Date.now()}`, { cache: 'no-store' });
+        if (!response.ok) throw new Error();
+        const data = await response.json() as Health;
+        if (!cancelled) setHealth(data);
+      } catch { if (!cancelled) setHealth(null); }
+    };
+    void load(); const timer = window.setInterval(load, 60_000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [epochId, refreshTick]);
+  useEffect(() => {
+    if (epochId !== 'v2-edge-only' || !snapshot || (view !== 'trades' && !selectedAgent)) return;
+    const cycle = snapshot.meta.cycle_id ?? 'bootstrap';
+    if (fullTradesCycle === cycle) return;
+    fetch(`/api/runtime/trades?t=${Date.now()}`, { cache: 'no-store' }).then((response) => { if (!response.ok) throw new Error(); return response.json() as Promise<{ meta: Snapshot['meta']; trades: Trade[] }>; }).then((data) => { setSnapshot((current) => current && (!data.meta.cycle_id || current.meta.cycle_id === data.meta.cycle_id) ? { ...current, trades: data.trades } : current); setFullTradesCycle(data.meta.cycle_id ?? cycle); }).catch(() => undefined);
+  }, [epochId, snapshot, view, selectedAgent, fullTradesCycle]);
+  useEffect(() => {
+    if (epochId !== 'v2-edge-only' || !snapshot || !selectedAgent) return;
+    const cycle = snapshot.meta.cycle_id ?? 'bootstrap';
+    if (fullEquityCycle === cycle) return;
+    fetch(`/api/runtime/equity?t=${Date.now()}`, { cache: 'no-store' }).then((response) => { if (!response.ok) throw new Error(); return response.json() as Promise<{ meta: Snapshot['meta']; equity: EquityPoint[] }>; }).then((data) => { setSnapshot((current) => current && (!data.meta.cycle_id || current.meta.cycle_id === data.meta.cycle_id) ? { ...current, equity: data.equity } : current); setFullEquityCycle(data.meta.cycle_id ?? cycle); }).catch(() => undefined);
+  }, [epochId, snapshot, selectedAgent, fullEquityCycle]);
   useEffect(() => { document.body.style.overflow = selectedAgent ? 'hidden' : ''; return () => { document.body.style.overflow = ''; }; }, [selectedAgent]);
 
   const families = useMemo(() => [...new Set(snapshot?.agents.map((agent) => agent.family) ?? [])], [snapshot]);
@@ -153,6 +215,9 @@ export default function Home() {
   const headlineBook = snapshot.summary.active_book ?? fallbackBook;
   const aggregateReturn = headlineBook.return_pct;
   const isV2 = epochId === 'v2-edge-only';
+  const liveCycle = health?.cycle ?? snapshot.summary.latest_cycle ?? null;
+  const dataAge = health?.age_seconds ?? (runtimeFallback ? null : 0);
+  const runtimeStatus = runtimeFallback ? 'stale' : health?.status ?? ((dataAge ?? Infinity) > 900 ? 'stale' : 'healthy');
   const familyMetrics = families.map((family, index) => {
     const agents = snapshot.agents.filter((agent) => agent.family === family); const equity = agents.reduce((sum, agent) => sum + agent.equity, 0); const trades = agents.reduce((sum, agent) => sum + agent.trades, 0);
     return { family, color: FAMILY_COLORS[index % FAMILY_COLORS.length], return_pct: 100 * (equity / (agents.length * snapshot.meta.starting_cash_per_agent) - 1), trades, active: agents.filter((agent) => agent.positions > 0).length };
@@ -165,21 +230,29 @@ export default function Home() {
     <main>
       <header className="site-header">
         <button className="brand" onClick={() => navigate('overview')} aria-label="PolyAlpha overview"><span className="brand-mark">Pα</span><span>POLYALPHA</span></button>
-        <div className="header-meta"><span className="status-dot" /> Public paper ledger</div>
+        <div className="header-meta"><span className={`status-dot ${runtimeStatus}`} /> {isV2 ? `${runtimeStatus === 'healthy' ? 'Live' : 'Stale'} paper runner` : 'Archived paper ledger'}</div>
       </header>
       <nav className="site-nav" aria-label="Dashboard sections">
         {(['overview', 'portfolios', 'trades', 'positions', 'methodology'] as View[]).map((item) => <button key={item} className={view === item ? 'active' : ''} onClick={() => navigate(item)}>{item === 'positions' ? 'Positions & orders' : item}</button>)}
         <label className="epoch-select"><span>Epoch</span><select value={epochId} onChange={(event) => setEpochId(event.target.value)}>{epochs.map((epoch) => <option key={epoch.id} value={epoch.id}>{epoch.label}{epoch.immutable ? ' · archived' : ''}</option>)}</select></label>
-        <span className="snapshot-pill">Snapshot · {new Date(snapshot.meta.generated_at).toLocaleDateString()}</span>
+        <span className="snapshot-pill">Updated · {formatAge(dataAge)}</span>
       </nav>
 
       {view === 'overview' && <>
         <section className="hero" id="top">
           <div className="eyebrow">{snapshot.meta.epoch_label ?? '100-agent prediction-market tournament'}</div>
           <h1>Every agent.<br />Every position.<br /><em>Nothing hidden.</em></h1>
-          <p className="hero-copy">A transparent view into 100 independently trading Polymarket paper portfolios—separating mandatory activity from threshold-clearing alpha.</p>
+          <p className="hero-copy">A transparent view into 100 independently trading Polymarket paper portfolios—separating cash-safe inactivity heartbeats from threshold-clearing alpha.</p>
           <div className="hero-total"><span>{snapshot.summary.active_book ? 'Active alpha-book equity' : 'Aggregate paper equity'}</span><strong>{money0.format(headlineBook.aggregate_equity)}</strong><small><ReturnValue value={aggregateReturn} /> from {money0.format(headlineBook.aggregate_starting_cash)} starting paper capital</small></div>
         </section>
+        {isV2 && <section className={`runtime-banner ${runtimeStatus}`} aria-label="Autonomous runner status">
+          <div className="runtime-primary"><span className="eyebrow">Five-minute autonomous runner</span><strong>{runtimeStatus === 'healthy' ? 'RUNNING' : runtimeStatus === 'degraded' ? 'DEGRADED' : 'STALE'}</strong><small>Last success {formatAge(dataAge)} · cycle {snapshot.meta.cycle_id ?? 'awaiting live state'}</small></div>
+          <div><span>Agents evaluated</span><strong>{liveCycle?.agents_evaluated ?? snapshot.summary.agents_evaluated ?? 0}/100</strong></div>
+          <div><span>Market books</span><strong>{liveCycle?.markets_with_books ?? '—'}</strong><small>{liveCycle?.markets_discovered ?? '—'} discovered</small></div>
+          <div><span>Latest fills</span><strong>{(liveCycle?.alpha_fills ?? 0) + (liveCycle?.heartbeat_fills ?? 0)}</strong><small>{liveCycle?.alpha_fills ?? 0} alpha · {liveCycle?.heartbeat_fills ?? 0} heartbeat</small></div>
+          <div className="runtime-actions"><button onClick={() => setRefreshTick((value) => value + 1)}>Refresh now</button><Link href="/api/runtime/ledger">Download SQLite</Link></div>
+          {runtimeStatus !== 'healthy' && <p className="runtime-warning">The last successful cycle is more than 15 minutes old or the live runtime is unavailable. The last verified ledger remains visible and no partial cycle has replaced it.</p>}
+        </section>}
         <section className="stat-grid" aria-label="Snapshot statistics">
           {[['Agent portfolios', snapshot.summary.agents], ['Agents positioned', snapshot.summary.agents_with_positions ?? snapshot.summary.agents_with_trades], ['Recorded trades', snapshot.summary.trades], ['Open positions', snapshot.summary.positions]].map(([label, value]) => <article className="stat-card" key={label}><span>{label}</span><strong>{Number(value).toLocaleString()}</strong></article>)}
         </section>
@@ -190,7 +263,7 @@ export default function Home() {
           <article><span>Unrealized P&amp;L</span><strong><ReturnValue value={100 * headlineBook.unrealized_pnl / headlineBook.aggregate_starting_cash} /></strong><small>{money.format(headlineBook.unrealized_pnl)}</small></article>
         </section>}
         <section className="panel">
-          <div className="section-heading"><div><span className="eyebrow">Strategy field</span><h2>Ten independent alpha families</h2></div><p className="section-note">{isV2 ? 'All 100 agents hold paper positions. Mandatory 0.10% activation fills are labeled separately; larger allocations still require after-cost edge, and crowd bias remains in shadow.' : 'Archived forced-activation results are preserved exactly as produced for auditability.'}</p></div>
+          <div className="section-heading"><div><span className="eyebrow">Strategy field</span><h2>Ten independent alpha families</h2></div><p className="section-note">{isV2 ? 'All 100 agents evaluate every market every five minutes. Alpha fills require after-cost edge; a 0.05% heartbeat is allowed only after 24 hours of inactivity with strong cash reserves, and crowd bias remains in shadow.' : 'Archived forced-activation results are preserved exactly as produced for auditability.'}</p></div>
           <div className="family-grid">{familyMetrics.map((item) => <article className="family-card" key={item.family}><span className="family-index" style={{ background: item.color }} /><div><h3>{familyLabel(item.family)}</h3><span>{item.active}/10 active agents</span></div><strong><ReturnValue value={item.return_pct} /></strong><small>{item.trades.toLocaleString()} trades</small></article>)}</div>
         </section>
         <section className="panel">
@@ -206,7 +279,7 @@ export default function Home() {
       </section>}
 
       {view === 'trades' && <section className="page-section">
-        <div className="page-title"><span className="eyebrow">Complete execution ledger</span><h1>Trade explorer</h1><p>All paper fills, including price, size, fees, execution style, signal rationale, agent, and underlying market.</p></div>
+        <div className="page-title"><span className="eyebrow">Complete execution ledger</span><h1>Trade explorer</h1><p>All paper fills, including price, size, fees, execution style, signal rationale, agent, and underlying market. {isV2 && fullTradesCycle !== snapshot.meta.cycle_id ? 'Loading the complete live ledger…' : ''}</p></div>
         <div className="toolbar"><label className="search-field"><span>Search trades</span><input value={tradeSearch} onChange={(event) => { setTradeSearch(event.target.value); setTradePage(0); }} placeholder="Market, rationale, outcome…" /></label><label><span>Agent</span><select value={tradeAgent} onChange={(event) => { setTradeAgent(event.target.value); setTradePage(0); }}><option value="all">All 100 agents</option>{snapshot.agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.id} · {agent.name}</option>)}</select></label><label><span>Side</span><select value={tradeSide} onChange={(event) => { setTradeSide(event.target.value); setTradePage(0); }}><option value="all">All sides</option>{[...new Set(snapshot.trades.map((trade) => trade.side))].map((side) => <option key={side}>{side}</option>)}</select></label><button className="outline-button export-button" onClick={() => downloadCsv('polyalpha-trades.csv', filteredTrades)}>Export CSV</button></div>
         <div className="result-bar"><span>{filteredTrades.length.toLocaleString()} matching trades</span><span>Page {Math.min(tradePage + 1, maxTradePage + 1)} of {maxTradePage + 1}</span></div>
         <div className="table-shell"><table><thead><tr><th>Time</th><th>Agent</th><th>Market</th><th>Action</th><th>Shares</th><th>Price</th><th>Fee</th><th>Net edge</th><th>Decision</th><th>Signal rationale</th></tr></thead><tbody>{tradeRows.map((trade) => <tr key={trade.id}><td>{formatTime(trade.timestamp)}</td><td><button className="table-link" onClick={() => setSelectedAgent(snapshot.agents.find((agent) => agent.id === trade.agent_id) ?? null)}>{trade.agent_id}</button></td><td className="market-cell">{marketUrl(snapshot, trade.market_id) ? <a href={marketUrl(snapshot, trade.market_id)!} target="_blank" rel="noreferrer">{marketLabel(snapshot, trade.market_id)} ↗</a> : marketLabel(snapshot, trade.market_id)}</td><td><span className={`side-chip ${trade.side.toLowerCase()}`}>{trade.side}</span> {trade.outcome}</td><td>{number.format(trade.shares)}</td><td>{trade.price.toFixed(4)}</td><td>{money.format(trade.fee)}</td><td>{trade.net_edge == null ? '—' : pct(trade.net_edge * 100)}</td><td>{trade.decision_class ?? trade.execution}</td><td className="reason-cell">{trade.reason}</td></tr>)}</tbody></table></div>
@@ -222,7 +295,7 @@ export default function Home() {
 
       {view === 'methodology' && <section className="page-section methodology-page">
         <div className="page-title"><span className="eyebrow">How to read the experiment</span><h1>Methodology, costs & risk</h1><p>The dashboard exposes a research tournament—not a claim of proven returns. Here is exactly how the paper results were produced.</p></div>
-        {isV2 ? <div className="method-grid"><article><span>01</span><h2>Guaranteed activation</h2><p>Every flat agent opens one labeled 0.10% paper position in a liquid 10¢–90¢ contract with relative spread no greater than 10%. The fill creates observable performance but is never presented as alpha.</p></article><article><span>02</span><h2>Edge-only scaling</h2><p>Beyond the activation baseline, markets are ranked by net executable edge. Larger positions require spread, fees, liquidity, minimum size, and the full strategy threshold.</p></article><article><span>03</span><h2>Hysteresis & accounting</h2><p>Alpha positions use hysteresis and cooldowns. All holdings are marked at liquidation bids; maker rewards and rebates are excluded.</p></article><article><span>04</span><h2>Balanced alpha risk</h2><p>Probation sizing is capped at 0.5%, with 0.15× Kelly, 2% per market, 8% per event, 30 markets, three alpha entries per cycle, and a 12% kill switch.</p></article></div> : <div className="warning-card"><div className="warning-mark">V1</div><div><h2>Forced-activation archive</h2><p>This immutable epoch required larger discovery positions without relative-spread filtering. Its cost and crowd-bias losses remain visible for comparison with v2.</p></div></div>}
+        {isV2 ? <div className="method-grid"><article><span>01</span><h2>Continuous evaluation</h2><p>All 100 agents evaluate every tradable market every five minutes. Persistent 128-observation histories survive each fresh runner process and power momentum, volatility, volume, and reversion signals.</p></article><article><span>02</span><h2>Edge-first execution</h2><p>Markets are ranked by net executable edge. Alpha positions require spread, fees, liquidity, minimum size, and the full strategy threshold.</p></article><article><span>03</span><h2>Cash-safe heartbeat</h2><p>After 24 hours without a BUY or SELL, one labeled 0.05% fallback may trade only with at least 90% cash, drawdown below 6%, tight spread, deep liquidity, and strict exposure caps. It never counts as alpha.</p></article><article><span>04</span><h2>Balanced alpha risk</h2><p>Probation sizing is capped at 0.5%, with 0.15× Kelly, 2% per market, 8% per event, 30 markets, three alpha entries per cycle, and a 12% kill switch.</p></article></div> : <div className="warning-card"><div className="warning-mark">V1</div><div><h2>Forced-activation archive</h2><p>This immutable epoch required larger discovery positions without relative-spread filtering. Its cost and crowd-bias losses remain visible for comparison with v2.</p></div></div>}
         <div className="method-section"><span className="eyebrow">The ten hypotheses</span><div className="hypothesis-list">{families.map((family, index) => { const agent = snapshot.agents.find((row) => row.family === family)!; return <div key={family}><span>{String(index + 1).padStart(2, '0')}</span><div><h3>{familyLabel(family)}</h3><p>{agent.strategy}</p></div><strong>10 variants</strong></div>; })}</div></div>
         <div className="warning-card"><div className="warning-mark">!</div><div><h2>Paper results are not investable evidence.</h2><p>This snapshot is short, unresolved, and deliberately transparent about inactive agents and early losses. Robust strategy selection requires substantially more forward data, complete market resolutions, probability-calibration scoring, and held-out evaluation.</p></div></div>
       </section>}

@@ -1,0 +1,102 @@
+name: PolyAlpha five-minute paper cycle
+
+on:
+  schedule:
+    - cron: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: polyalpha-paper-cycle
+  cancel-in-progress: false
+
+jobs:
+  cycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Restore the authoritative runtime ledger
+        id: restore
+        shell: bash
+        run: |
+          mkdir -p work/runtime
+          if git fetch origin runtime-state:refs/remotes/origin/runtime-state; then
+            git show origin/runtime-state:runtime/polyalpha-v2.sqlite3 > work/polyalpha-v2.sqlite3
+            for dataset in dashboard trades equity health; do
+              git show "origin/runtime-state:runtime/${dataset}.json" > "work/runtime/${dataset}.json"
+            done
+            echo "had_runtime=true" >> "$GITHUB_OUTPUT"
+          else
+            PYTHONPATH=engine/src python scripts/import_snapshot.py \
+              --snapshot public/data/snapshot.json \
+              --db work/polyalpha-v2.sqlite3
+            echo "had_runtime=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Execute one complete public-data cycle
+        id: trade
+        shell: bash
+        run: |
+          set +e
+          PYTHONPATH=engine/src python scripts/run_runtime_cycle.py \
+            --db work/polyalpha-v2.sqlite3 \
+            --output-dir work/runtime \
+            --manifest engine/agents.json
+          result=$?
+          set -e
+          echo "exit_code=${result}" >> "$GITHUB_OUTPUT"
+          if [ "$result" -eq 0 ]; then
+            cp work/polyalpha-v2.sqlite3 work/runtime/polyalpha-v2.sqlite3
+          fi
+
+      - name: Verify the completed runtime
+        if: steps.trade.outputs.exit_code == '0'
+        run: PYTHONPATH=engine/src python scripts/verify_runtime.py --runtime work/runtime
+
+      - name: Publish one atomic runtime-state commit
+        if: steps.trade.outputs.exit_code == '0' || steps.restore.outputs.had_runtime == 'true'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git show-ref --verify --quiet refs/remotes/origin/runtime-state; then
+            runtime_sha=$(git rev-parse refs/remotes/origin/runtime-state)
+            git switch --detach refs/remotes/origin/runtime-state
+            mkdir -p runtime
+            cp work/runtime/dashboard.json runtime/dashboard.json
+            cp work/runtime/trades.json runtime/trades.json
+            cp work/runtime/equity.json runtime/equity.json
+            cp work/runtime/health.json runtime/health.json
+            cp work/runtime/polyalpha-v2.sqlite3 runtime/polyalpha-v2.sqlite3
+            git add runtime
+            git commit --amend -m "Update PolyAlpha runtime state"
+            git push \
+              --force-with-lease="refs/heads/runtime-state:${runtime_sha}" \
+              origin HEAD:refs/heads/runtime-state
+          else
+            git switch --orphan runtime-publish
+            git rm -rf .
+            mkdir -p runtime
+            cp work/runtime/dashboard.json runtime/dashboard.json
+            cp work/runtime/trades.json runtime/trades.json
+            cp work/runtime/equity.json runtime/equity.json
+            cp work/runtime/health.json runtime/health.json
+            cp work/runtime/polyalpha-v2.sqlite3 runtime/polyalpha-v2.sqlite3
+            git add runtime
+            git commit -m "Initialize PolyAlpha runtime state"
+            git push origin HEAD:refs/heads/runtime-state
+          fi
+
+      - name: Surface a failed paper cycle
+        if: steps.trade.outputs.exit_code != '0'
+        run: exit 1
