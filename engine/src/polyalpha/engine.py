@@ -9,6 +9,7 @@ from .agents import StrategyAgent
 from .broker import PaperBroker
 from .features import FeatureEngine
 from .models import Book, FeatureVector, Market
+from .news import NewsClient, NewsMatcher
 from .risk import RiskManager
 
 
@@ -26,6 +27,11 @@ class CycleReport:
     maker_fills: int
     alpha_fills: int
     heartbeat_fills: int
+    retirement_fills: int
+    news_items: int
+    adaptation_resolved: int
+    strategies_paused: int
+    news_errors: tuple[str, ...]
     elapsed_seconds: float
 
 
@@ -37,11 +43,10 @@ class TradingEngine:
         broker: PaperBroker,
         features: FeatureEngine | None = None,
         risk: RiskManager | None = None,
+        news_client: NewsClient | None = None,
         max_new_positions_per_cycle: int = 3,
         max_turnover_fraction: float = 0.10,
         cooldown_seconds: float = 30 * 60,
-        enable_heartbeat: bool = True,
-        heartbeat_interval_seconds: float = 24 * 60 * 60,
     ) -> None:
         self.source = source
         self.agents = agents
@@ -50,11 +55,10 @@ class TradingEngine:
             initial_history=broker.load_feature_history()
         )
         self.risk = risk or RiskManager()
+        self.news_client = news_client
         self.max_new_positions_per_cycle = max_new_positions_per_cycle
         self.max_turnover_fraction = max_turnover_fraction
         self.cooldown_seconds = cooldown_seconds
-        self.enable_heartbeat = enable_heartbeat
-        self.heartbeat_interval_seconds = heartbeat_interval_seconds
         self.broker.register_agents([agent.spec for agent in agents])
 
     def cycle(self, max_markets: int | None = None) -> CycleReport:
@@ -91,9 +95,54 @@ class TradingEngine:
                     pass
         token_ids = [token for market in markets for token in market.tokens.values()]
         books = self.source.books(token_ids)
-        feature_map = self.features.build(markets, books)
+        news_errors: list[str] = []
+        if self.news_client is not None:
+            fetched_news, news_errors = self.news_client.fetch()
+            self.broker.upsert_news(fetched_news)
+        recent_news = self.broker.recent_news()
+        matcher = NewsMatcher(recent_news)
+        news_signals = {market.id: matcher.score(market.question) for market in markets}
+        feature_map = self.features.build(markets, books, news_signals)
         self.broker.append_feature_history(self.features.drain_appended())
+
+        # Quotes from the audited v2.1 execution model must not fill under v2.2.
+        # Crowd-bias quotes are also removed before pending-order processing.
+        self.broker.cancel_stale_pending("v2.2-adaptive-news")
+        for agent in self.agents:
+            if agent.spec.family == "crowd_bias":
+                self.broker.cancel_pending(agent.spec.id)
         maker_fills = self.broker.process_pending(feature_map)
+        self.broker.mark_to_market(feature_map)
+        adaptation_resolved = self.broker.resolve_adaptation(feature_map)
+        adaptations = self.broker.adaptation_states()
+
+        # v2.2 cuts audited failure modes rather than carrying them indefinitely.
+        # All legacy activation/heartbeat inventory and every crowd-bias position
+        # is liquidated at the executable bid, with history preserved permanently.
+        for agent in self.agents:
+            held = self.broker.market_outcomes(agent.spec.id)
+            adaptive = adaptations.get(agent.spec.id)
+            for market_id in list(held):
+                feature = feature_map.get(market_id)
+                if feature is None:
+                    continue
+                origin = self.broker.position_origin_class(agent.spec.id, market_id)
+                retire = (
+                    agent.spec.family == "crowd_bias"
+                    or origin in {"activation", "heartbeat"}
+                    or (adaptive is not None and adaptive.state == "paused")
+                )
+                if retire:
+                    self.broker.retire_market(
+                        agent.spec.id,
+                        feature,
+                        "v2.2 audited strategy retirement",
+                    )
+            if agent.spec.family == "crowd_bias" or (
+                adaptive is not None and adaptive.state == "paused"
+            ):
+                self.broker.cancel_pending(agent.spec.id)
+
         self.broker.mark_to_market(feature_map)
         states = self.broker.all_risk_states(feature_map)
         approved = 0
@@ -117,6 +166,10 @@ class TradingEngine:
 
         for agent in self.agents:
             state = states[agent.spec.id]
+            adaptive = adaptations.get(agent.spec.id)
+            allocation_multiplier = adaptive.allocation_multiplier if adaptive else 1.0
+            if agent.spec.family == "crowd_bias" or allocation_multiplier <= 0:
+                continue
             signals = {market_id: agent.decide(feature) for market_id, feature in feature_map.items()}
             held = self.broker.market_outcomes(agent.spec.id)
             turnover_limit = max(0.0, state.equity * self.max_turnover_fraction)
@@ -132,10 +185,6 @@ class TradingEngine:
                     continue
                 previous = state.market_exposure.get(market_id, 0.0)
                 if signal.outcome is None:
-                    if self.broker.position_origin_class(agent.spec.id, market_id) in {
-                        "activation", "heartbeat"
-                    }:
-                        continue
                     if signal.edge > 0 and aligned(signal.preferred_outcome, held_outcomes):
                         continue
                     self.broker.rebalance(signal, feature, 0.0, "exit")
@@ -143,7 +192,9 @@ class TradingEngine:
                     apply_state(state, feature, 0.0)
                     continue
 
-                decision = self.risk.authorize(agent.spec, signal, feature, state)
+                decision = self.risk.authorize(
+                    agent.spec, signal, feature, state, allocation_multiplier
+                )
                 if not decision.allowed:
                     continue
                 target = decision.target_notional
@@ -180,7 +231,9 @@ class TradingEngine:
             for _, feature, signal in sorted(candidates, key=lambda item: item[0], reverse=True):
                 if opened >= self.max_new_positions_per_cycle:
                     break
-                decision = self.risk.authorize(agent.spec, signal, feature, state)
+                decision = self.risk.authorize(
+                    agent.spec, signal, feature, state, allocation_multiplier
+                )
                 if not decision.allowed or decision.target_notional <= 0:
                     continue
                 if risk_adding_turnover + decision.target_notional > turnover_limit:
@@ -191,69 +244,6 @@ class TradingEngine:
                 risk_adding_turnover += decision.target_notional
                 apply_state(state, feature, decision.target_notional)
 
-            # A tiny heartbeat is permitted only after 24 hours with no executed
-            # BUY/SELL fill and while strong cash, drawdown, and exposure reserves
-            # remain. It is labeled non-alpha and can never satisfy promotion gates.
-            inactive_for = time.time() - self.broker.last_executed_fill_timestamp(agent.spec.id)
-            if self.enable_heartbeat and inactive_for >= self.heartbeat_interval_seconds:
-                actual_state = self.broker.all_risk_states(feature_map)[agent.spec.id]
-                gross_exposure = sum(actual_state.market_exposure.values())
-                heartbeat_exposure = self.broker.decision_class_exposure(
-                    agent.spec.id, "heartbeat"
-                )
-                reserve_ok = (
-                    actual_state.drawdown < 0.06
-                    and actual_state.cash >= 0.90 * self.broker.starting_cash
-                    and gross_exposure <= 0.10 * actual_state.equity
-                    and heartbeat_exposure < 0.005 * actual_state.equity
-                )
-                heartbeat_candidates = []
-                if not reserve_ok:
-                    continue
-                for feature in feature_map.values():
-                    if self.broker.has_market_exposure(agent.spec.id, feature.market.id):
-                        continue
-                    heartbeat = agent.heartbeat_signal(feature)
-                    if heartbeat.edge < -0.0025:
-                        continue
-                    decision = self.risk.authorize(agent.spec, heartbeat, feature, actual_state)
-                    if not decision.allowed or decision.target_notional <= 0:
-                        continue
-                    selected_book = (
-                        feature.yes_book
-                        if heartbeat.outcome and heartbeat.outcome.lower() == "yes"
-                        else feature.no_book
-                    )
-                    ask = selected_book.best_ask
-                    bid = selected_book.best_bid
-                    if ask is None or bid is None or not (0.10 <= ask <= 0.90):
-                        continue
-                    relative_spread = (ask - bid) / max(0.01, ask)
-                    if relative_spread > 0.03:
-                        continue
-                    displayed_notional = selected_book.asks[0].size * ask if selected_book.asks else 0.0
-                    if displayed_notional < 10.0 * decision.target_notional:
-                        continue
-                    projected_cash = actual_state.cash - 1.01 * decision.target_notional
-                    projected_gross = gross_exposure + decision.target_notional
-                    projected_heartbeat = heartbeat_exposure + decision.target_notional
-                    if (
-                        projected_cash < 0.90 * self.broker.starting_cash
-                        or projected_gross > 0.10 * actual_state.equity
-                        or projected_heartbeat > 0.005 * actual_state.equity
-                        or risk_adding_turnover + decision.target_notional > turnover_limit
-                    ):
-                        continue
-                    heartbeat_candidates.append((heartbeat.edge, feature, heartbeat, decision))
-                if heartbeat_candidates:
-                    _, feature, heartbeat, decision = max(
-                        heartbeat_candidates, key=lambda item: item[0]
-                    )
-                    self.broker.rebalance(
-                        heartbeat, feature, decision.target_notional, "heartbeat"
-                    )
-                    approved += 1
-                    risk_adding_turnover += decision.target_notional
         self.broker.mark_to_market(feature_map, record_snapshot=True)
         fill_counts = self.broker.fill_counts_since(starting_trade_id)
         self.broker.finish_cycle(
@@ -265,6 +255,9 @@ class TradingEngine:
             alpha_fills=fill_counts["alpha"],
             heartbeat_fills=fill_counts["heartbeat"],
             maker_fills=fill_counts["maker"],
+            retirement_fills=fill_counts["retirement"],
+            news_items=len(recent_news),
+            strategies_paused=sum(state.state == "paused" for state in adaptations.values()),
         )
         return CycleReport(
             cycle_id,
@@ -274,5 +267,10 @@ class TradingEngine:
             fill_counts["maker"],
             fill_counts["alpha"],
             fill_counts["heartbeat"],
+            fill_counts["retirement"],
+            len(recent_news),
+            adaptation_resolved,
+            sum(state.state == "paused" for state in adaptations.values()),
+            tuple(news_errors),
             time.monotonic() - started,
         )

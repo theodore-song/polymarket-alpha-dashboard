@@ -16,6 +16,7 @@ from polyalpha.api import PolymarketClient
 from polyalpha.broker import PaperBroker
 from polyalpha.engine import TradingEngine
 from polyalpha.factory import build_agent_specs
+from polyalpha.news import NewsClient
 
 
 def write_failure_health(path: Path, error: Exception) -> None:
@@ -54,7 +55,8 @@ def main() -> int:
     broker = PaperBroker(args.db)
     try:
         engine = TradingEngine(
-            PolymarketClient(), build_agents(build_agent_specs()), broker
+            PolymarketClient(), build_agents(build_agent_specs()), broker,
+            news_client=NewsClient(),
         )
         report = engine.cycle()
         broker.checkpoint()
@@ -79,7 +81,7 @@ def main() -> int:
         "--equity-output", str(output / "equity.json"),
         "--health-output", str(health_path),
         "--epoch", "v2-edge-only",
-        "--label", "V2.1 · Continuous five-minute trading",
+        "--label", "V2.2 · Adaptive news-confirmed trading",
     ]
     if args.skip_market_enrichment:
         command.append("--skip-market-enrichment")
@@ -92,6 +94,11 @@ def main() -> int:
             "books": report.markets_with_books,
             "alpha_fills": report.alpha_fills,
             "heartbeat_fills": report.heartbeat_fills,
+            "retirement_fills": report.retirement_fills,
+            "news_items": report.news_items,
+            "adaptation_resolved": report.adaptation_resolved,
+            "strategies_paused": report.strategies_paused,
+            "news_errors": report.news_errors,
             "elapsed_seconds": report.elapsed_seconds,
         })
     )

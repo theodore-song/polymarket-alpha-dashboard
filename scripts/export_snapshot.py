@@ -65,6 +65,9 @@ def main() -> None:
     successful_cycles = [cycle for cycle in cycles if cycle.get("status") == "success"]
     latest_cycle = successful_cycles[-1] if successful_cycles else None
     latest_attempt = cycles[-1] if cycles else None
+    news = rows(db, "SELECT * FROM news_items ORDER BY published_at DESC LIMIT 50") if table_exists(db, "news_items") else []
+    adaptation_rows = rows(db, "SELECT * FROM strategy_adaptation ORDER BY agent_id") if table_exists(db, "strategy_adaptation") else []
+    adaptations = {row["agent_id"]: row for row in adaptation_rows}
 
     trade_counts: dict[str, int] = defaultdict(int)
     position_counts: dict[str, int] = defaultdict(int)
@@ -105,12 +108,14 @@ def main() -> None:
             "strategy_version": spec.get("strategy_version", agent.get("strategy_version", args.epoch)),
             "fees_paid": fees[agent["id"]],
             "turnover": turnover[agent["id"]],
-            "alpha_trades": sum(
-                count for key, count in decision_counts[agent["id"]].items()
-                if key not in {"activation", "heartbeat"}
-            ),
+            "alpha_trades": decision_counts[agent["id"]].get("alpha", 0),
             "heartbeat_trades": decision_counts[agent["id"]].get("heartbeat", 0),
             "activation_trades": decision_counts[agent["id"]].get("activation", 0),
+            "retirement_trades": decision_counts[agent["id"]].get("retirement", 0),
+            "adaptation": adaptations.get(agent["id"], {
+                "samples": 0, "mean_return": 0, "lower_bound": None,
+                "upper_bound": None, "allocation_multiplier": 1, "state": "warming",
+            }),
             "liquidation_value": float(agent["equity"]) - float(agent["cash"]),
             "unrealized_pnl": float(agent["equity"]) - float(agent["cash"]) - exposure[agent["id"]],
         })
@@ -154,7 +159,7 @@ def main() -> None:
         alpha_entries = [
             row for row in agent_trades
             if row["side"] == "BUY"
-            and (row.get("decision_class") or "legacy") not in {"activation", "heartbeat"}
+            and (row.get("decision_class") or "legacy") == "alpha"
         ]
         first_trade = min((float(row["timestamp"]) for row in alpha_entries), default=now)
         alpha_markets = {row["market_id"] for row in alpha_entries}
@@ -175,7 +180,7 @@ def main() -> None:
                 (
                     row for row in market_rows
                     if row["side"] == "BUY"
-                    and (row.get("decision_class") or "legacy") not in {"activation", "heartbeat"}
+                    and (row.get("decision_class") or "legacy") == "alpha"
                 ),
                 None,
             )
@@ -242,6 +247,7 @@ def main() -> None:
             "alpha_trades": sum(int(agent["alpha_trades"]) for agent in selected),
             "heartbeat_trades": sum(int(agent["heartbeat_trades"]) for agent in selected),
             "activation_trades": sum(int(agent["activation_trades"]) for agent in selected),
+            "retirement_trades": sum(int(agent["retirement_trades"]) for agent in selected),
             "fees": sum(float(agent["fees_paid"]) for agent in selected),
             "turnover": sum(float(agent["turnover"]) for agent in selected),
             "realized_pnl": sum(float(agent["realized_pnl"]) for agent in selected),
@@ -260,7 +266,7 @@ def main() -> None:
             "cycle_id": cycle_id,
             "epoch": args.epoch,
             "epoch_label": args.label,
-            "strategy_version": "v2.1-continuous",
+            "strategy_version": "v2.2-adaptive-news",
             "mode": "Polymarket public-data paper trading",
             "starting_cash_per_agent": 10_000,
             "currency": "USDC",
@@ -289,6 +295,19 @@ def main() -> None:
             "active_book": active_book,
             "shadow_book": shadow_book,
             "combined": combined,
+            "adaptation": {
+                "warming": sum(row.get("state") == "warming" for row in adaptation_rows),
+                "probation": sum(row.get("state") == "probation" for row in adaptation_rows),
+                "reduced": sum(row.get("state") == "reduced" for row in adaptation_rows),
+                "validated": sum(row.get("state") == "validated" for row in adaptation_rows),
+                "paused": sum(row.get("state") == "paused" for row in adaptation_rows),
+                "evaluations": sum(int(row.get("samples") or 0) for row in adaptation_rows),
+            },
+            "news": {
+                "items": len(news),
+                "sources": len({row["source"] for row in news}),
+                "latest_at": max((float(row["published_at"]) for row in news), default=None),
+            },
         },
         "agents": agents,
         "trades": trades[: max(0, args.recent_trades)],
@@ -299,6 +318,7 @@ def main() -> None:
             for row in [item for item in equity if item["agent_id"] == agent_id][-24:]
         ],
         "markets": market_data,
+        "news": news,
     }
     destination = Path(args.output)
     destination.parent.mkdir(parents=True, exist_ok=True)

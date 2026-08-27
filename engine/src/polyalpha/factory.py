@@ -8,7 +8,7 @@ FAMILY_DESCRIPTIONS = {
     "mean_reversion": "Fade statistically extreme moves toward a rolling fair-value anchor.",
     "orderflow": "Use top-of-book depth imbalance and microprice pressure before price reacts.",
     "volatility_breakout": "Trade directional moves only when they are large relative to recent noise.",
-    "crowd_bias": "Shrink overconfident longshots/favorites toward calibrated base probabilities.",
+    "crowd_bias": "Quarantined after audit; retained only as an immutable research control.",
     "attention": "Require volume acceleration to confirm price information rather than noise.",
     "time_catalyst": "Change the trend/reversion mix as resolution approaches.",
     "relative_value": "Normalize mutually-exclusive negative-risk event outcomes and fade dislocations.",
@@ -47,7 +47,7 @@ def build_agent_specs() -> list[AgentSpec]:
                     },
                     allocation_status="shadow" if family == "crowd_bias" else "active",
                     allocation_tier="probation",
-                    strategy_version="v2.1-continuous",
+                    strategy_version="v2.2-adaptive-news",
                 )
             )
     assert len(specs) == 100

@@ -31,6 +31,7 @@ def main() -> None:
 
     assert dashboard["meta"]["snapshot_version"] == 2
     assert dashboard["meta"]["epoch"] == "v2-edge-only"
+    assert dashboard["meta"]["strategy_version"] == "v2.2-adaptive-news"
     assert len(dashboard["agents"]) == 100
     assert dashboard["summary"]["agents_evaluated"] == 100
     assert health["status"] == "healthy"
@@ -41,12 +42,18 @@ def main() -> None:
     assert min(float(agent["cash"]) for agent in dashboard["agents"]) >= 0
     assert sum(agent["allocation_status"] == "active" for agent in dashboard["agents"]) == 90
     assert sum(agent["allocation_status"] == "shadow" for agent in dashboard["agents"]) == 10
+    assert all(agent.get("adaptation") for agent in dashboard["agents"])
+    assert int((dashboard["summary"]["latest_cycle"] or {}).get("heartbeat_fills") or 0) == 0
 
     db = sqlite3.connect(runtime / "polyalpha-v2.sqlite3")
     try:
         assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert db.execute("SELECT COUNT(*) FROM agents").fetchone()[0] == 100
+        assert db.execute("SELECT COUNT(*) FROM strategy_adaptation").fetchone()[0] == 100
         assert db.execute("SELECT COUNT(*) FROM trades").fetchone()[0] == len(trades["trades"])
+        assert db.execute(
+            "SELECT COUNT(*) FROM pending_orders WHERE COALESCE(strategy_version,'') != 'v2.2-adaptive-news'"
+        ).fetchone()[0] == 0
         assert db.execute(
             "SELECT COALESCE(MAX(n),0) FROM (SELECT COUNT(*) n FROM market_history GROUP BY market_id)"
         ).fetchone()[0] <= 128

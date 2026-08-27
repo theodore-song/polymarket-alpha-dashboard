@@ -36,7 +36,10 @@ class RiskManager:
         kill_drawdown: float = 0.12,
         kelly_multiplier: float = 0.15,
         probation_fraction: float = 0.005,
-        heartbeat_fraction: float = 0.0005,
+        max_relative_spread: float = 0.03,
+        min_contract_price: float = 0.05,
+        max_contract_price: float = 0.95,
+        min_edge_cost_ratio: float = 1.25,
     ) -> None:
         self.max_market_fraction = max_market_fraction
         self.max_event_fraction = max_event_fraction
@@ -45,7 +48,10 @@ class RiskManager:
         self.kill_drawdown = kill_drawdown
         self.kelly_multiplier = kelly_multiplier
         self.probation_fraction = probation_fraction
-        self.heartbeat_fraction = heartbeat_fraction
+        self.max_relative_spread = max_relative_spread
+        self.min_contract_price = min_contract_price
+        self.max_contract_price = max_contract_price
+        self.min_edge_cost_ratio = min_edge_cost_ratio
 
     def authorize(
         self,
@@ -53,6 +59,7 @@ class RiskManager:
         signal: Signal,
         feature: FeatureVector,
         state: AgentRiskState,
+        allocation_multiplier: float = 1.0,
     ) -> RiskDecision:
         existing = state.market_exposure.get(feature.market.id, 0.0)
         if signal.outcome is None:
@@ -63,20 +70,30 @@ class RiskManager:
             return RiskDecision(existing > 0, 0.0, "spread gate")
         if feature.market.liquidity < spec.min_liquidity and signal.outcome != "BOTH":
             return RiskDecision(existing > 0, 0.0, "liquidity gate")
+        if allocation_multiplier <= 0:
+            return RiskDecision(existing > 0, 0.0, "adaptive strategy pause")
+        if signal.outcome != "BOTH":
+            book = feature.yes_book if signal.outcome and signal.outcome.lower() == "yes" else feature.no_book
+            bid, ask = book.best_bid, book.best_ask
+            if bid is None or ask is None:
+                return RiskDecision(existing > 0, 0.0, "incomplete executable book")
+            entry_price = ask if signal.execution == "taker" else bid
+            if not (self.min_contract_price <= entry_price <= self.max_contract_price):
+                return RiskDecision(existing > 0, 0.0, "extreme-price quarantine")
+            relative_spread = (ask - bid) / max(0.01, ask)
+            if relative_spread > self.max_relative_spread:
+                return RiskDecision(existing > 0, 0.0, "relative-spread gate")
+            entry_fee = feature.market.fee_rate * entry_price * (1.0 - entry_price) if signal.execution == "taker" else 0.0
+            exit_fee = feature.market.fee_rate * bid * (1.0 - bid)
+            round_trip_cost = (ask - bid) + entry_fee + exit_fee
+            required_edge = max(spec.threshold, self.min_edge_cost_ratio * round_trip_cost)
+            if signal.edge < required_edge:
+                return RiskDecision(existing > 0, 0.0, "round-trip-cost gate")
         if state.active_markets >= self.max_active_markets and existing <= 0:
             return RiskDecision(False, 0.0, "position-count cap")
 
         event_value = state.event_exposure.get(feature.market.event_id, 0.0)
         event_room = max(0.0, state.equity * self.max_event_fraction - event_value + existing)
-        if signal.signal_kind == "heartbeat":
-            target = min(
-                state.equity * min(signal.target_fraction, self.heartbeat_fraction),
-                event_room,
-                max(0.0, state.equity * self.max_market_fraction - existing),
-            )
-            if target < max(1.0, feature.market.min_order_size * 0.05):
-                return RiskDecision(False, 0.0, "heartbeat size below minimum")
-            return RiskDecision(True, target, "cash-safe heartbeat approved")
         variance = max(0.01, feature.mid_yes * (1.0 - feature.mid_yes))
         raw_kelly = signal.edge / variance
         if state.drawdown <= self.throttle_drawdown:
@@ -94,8 +111,13 @@ class RiskManager:
             signal.target_fraction,
             tier_limit,
             self.kelly_multiplier * raw_kelly,
-        ) * drawdown_throttle
+        ) * drawdown_throttle * min(1.25, allocation_multiplier)
         target = min(state.equity * fraction, event_room)
+        if signal.execution == "taker" and signal.outcome != "BOTH" and target > 0:
+            book = feature.yes_book if signal.outcome and signal.outcome.lower() == "yes" else feature.no_book
+            displayed_notional = book.asks[0].size * book.asks[0].price if book.asks else 0.0
+            if displayed_notional < 10.0 * target:
+                return RiskDecision(existing > 0, 0.0, "displayed-depth gate")
         if target < max(1.0, feature.market.min_order_size * 0.05):
             return RiskDecision(existing > 0, 0.0, "size below risk-adjusted minimum")
         return RiskDecision(True, target, "approved")

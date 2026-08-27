@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import time
 import unittest
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -12,6 +13,7 @@ from polyalpha.engine import TradingEngine
 from polyalpha.factory import build_agent_specs
 from polyalpha.features import FeatureEngine, PricePoint
 from polyalpha.models import Book, Level, Market, Signal
+from polyalpha.news import NewsItem, NewsMatcher
 from polyalpha.risk import AgentRiskState, RiskManager
 from polyalpha.synthetic import SyntheticMarketData
 
@@ -59,6 +61,29 @@ class FeatureAndAgentTests(unittest.TestCase):
         agent = StrategyAgent(build_agent_specs()[80])
         self.assertEqual(agent.decide(f).outcome, "BOTH")
 
+    def test_temporal_history_requires_real_elapsed_time(self) -> None:
+        market = self.make_market()
+        now = time.time()
+        books = {
+            "yes": Book("yes", (Level(.49, 1000),), (Level(.50, 1000),), now),
+            "no": Book("no", (Level(.49, 1000),), (Level(.50, 1000),), now),
+        }
+        regular = [PricePoint(now - (11 - index) * 300, .45 + index * .004, 1000) for index in range(12)]
+        ready = FeatureEngine(initial_history={"m1": regular}).build([market], books)["m1"]
+        stale = [PricePoint(now - 7200 + index * 300, .45 + index * .004, 1000) for index in range(12)]
+        not_ready = FeatureEngine(initial_history={"m1": stale}).build([market], books)["m1"]
+        self.assertTrue(ready.history_ready)
+        self.assertFalse(not_ready.history_ready)
+
+    def test_news_requires_two_independent_sources(self) -> None:
+        now = time.time()
+        one = NewsItem("1", "Source A", "Candidate Smith wins confirmed vote", "https://a.test", now, now)
+        two = NewsItem("2", "Source B", "Candidate Smith victory confirmed", "https://b.test", now, now)
+        self.assertFalse(NewsMatcher([one]).score("Will Candidate Smith win?").confirmed)
+        signal = NewsMatcher([one, two]).score("Will Candidate Smith win?")
+        self.assertTrue(signal.confirmed)
+        self.assertGreater(signal.direction, 0)
+
 
 class BrokerAndEngineTests(unittest.TestCase):
     @staticmethod
@@ -93,7 +118,7 @@ class BrokerAndEngineTests(unittest.TestCase):
             self.assertGreaterEqual(min(row.cash for row in broker.summaries()), 0.0)
             broker.close()
 
-    def test_no_edge_stays_flat_before_heartbeat_window(self) -> None:
+    def test_no_edge_stays_flat(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             broker = PaperBroker(Path(tmp) / "paper.sqlite3")
             market = Market(
@@ -121,7 +146,7 @@ class BrokerAndEngineTests(unittest.TestCase):
             finally:
                 broker.close()
 
-    def test_heartbeat_after_24_hours_is_tiny_and_does_not_repeat(self) -> None:
+    def test_heartbeat_is_disabled_even_after_24_hours(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             broker = PaperBroker(Path(tmp) / "paper.sqlite3")
             source = self.single_market_data()
@@ -137,35 +162,85 @@ class BrokerAndEngineTests(unittest.TestCase):
                 )
                 broker.db.commit()
                 first = engine.cycle()
-                self.assertEqual(first.heartbeat_fills, 1)
-                row = broker.db.execute(
-                    "SELECT shares*price,decision_class FROM trades"
-                ).fetchone()
-                self.assertEqual(row[1], "heartbeat")
-                self.assertLessEqual(float(row[0]), 5.01)
+                self.assertEqual(first.heartbeat_fills, 0)
+                self.assertEqual(broker.db.execute("SELECT COUNT(*) FROM trades").fetchone()[0], 0)
                 second = engine.cycle()
                 self.assertEqual(second.heartbeat_fills, 0)
-                self.assertEqual(broker.db.execute("SELECT COUNT(*) FROM trades").fetchone()[0], 1)
+                self.assertEqual(broker.db.execute("SELECT COUNT(*) FROM trades").fetchone()[0], 0)
             finally:
                 broker.close()
 
-    def test_heartbeat_requires_cash_drawdown_and_exposure_reserves(self) -> None:
+    def test_relative_spread_gate_rejects_cheap_wide_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             broker = PaperBroker(Path(tmp) / "paper.sqlite3")
             spec = replace(build_agent_specs()[0], min_liquidity=0, max_spread=1)
             try:
-                engine = TradingEngine(self.single_market_data(), [StrategyAgent(spec)], broker)
-                old = (datetime.now(timezone.utc) - timedelta(hours=25)).timestamp()
-                broker.db.execute(
-                    "UPDATE agents SET registered_at=?,cash=8999,equity=8999,high_water=10000 WHERE id=?",
-                    (old, spec.id),
+                market = FeatureAndAgentTests().make_market()
+                feature = FeatureEngine().build([market], {
+                    "yes": Book("yes", (Level(.035, 10000),), (Level(.059, 10000),), time.time()),
+                    "no": Book("no", (Level(.941, 10000),), (Level(.965, 10000),), time.time()),
+                })["m1"]
+                signal = Signal(spec.id, "m1", "Yes", .20, .12, 1, .01, "taker", "test", "Yes")
+                decision = RiskManager().authorize(
+                    spec, signal, feature, AgentRiskState(10_000, 10_000, 10_000)
                 )
-                broker.db.commit()
-                report = engine.cycle()
-                self.assertEqual(report.heartbeat_fills, 0)
-                self.assertEqual(broker.db.execute("SELECT COUNT(*) FROM trades").fetchone()[0], 0)
+                self.assertFalse(decision.allowed)
+                self.assertEqual(decision.reason, "relative-spread gate")
             finally:
                 broker.close()
+
+    def test_maker_quote_only_fills_when_opposite_quote_crosses(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            broker = PaperBroker(Path(tmp) / "paper.sqlite3")
+            spec = build_agent_specs()[90]
+            broker.register_agents([spec])
+            market = FeatureAndAgentTests().make_market()
+            broker.db.execute(
+                """INSERT INTO pending_orders(agent_id,market_id,event_id,token_id,outcome,side,
+                   shares,limit_price,created_at,reason,strategy_version,decision_class)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (spec.id, "m1", "m1", "yes", "Yes", "BUY", 10, .49, time.time(),
+                 "test quote", spec.strategy_version, "alpha"),
+            )
+            broker.db.commit()
+            away = FeatureEngine().build([market], {
+                "yes": Book("yes", (Level(.47, 1000),), (Level(.50, 1000),), time.time()),
+                "no": Book("no", (Level(.50, 1000),), (Level(.53, 1000),), time.time()),
+            })
+            self.assertEqual(broker.process_pending(away), 0)
+            crossed = FeatureEngine().build([market], {
+                "yes": Book("yes", (Level(.48, 1000),), (Level(.49, 1000),), time.time()),
+                "no": Book("no", (Level(.51, 1000),), (Level(.52, 1000),), time.time()),
+            })
+            self.assertEqual(broker.process_pending(crossed), 1)
+            self.assertEqual(broker.db.execute("SELECT COUNT(*) FROM positions").fetchone()[0], 1)
+            broker.close()
+
+    def test_negative_forward_evidence_pauses_strategy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            broker = PaperBroker(Path(tmp) / "paper.sqlite3")
+            spec = build_agent_specs()[0]
+            broker.register_agents([spec])
+            market = FeatureAndAgentTests().make_market()
+            feature = FeatureEngine().build([market], {
+                "yes": Book("yes", (Level(.45, 1000),), (Level(.46, 1000),), time.time()),
+                "no": Book("no", (Level(.54, 1000),), (Level(.55, 1000),), time.time()),
+            })["m1"]
+            now = time.time()
+            broker.db.executemany(
+                """INSERT INTO adaptation_evaluations(
+                   agent_id,market_id,token_id,outcome,entry_price,entry_fee_per_share,
+                   fee_rate,created_at,due_at,strategy_version) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                [(spec.id, "m1", "yes", "Yes", .50, 0, 0, now - 600, now - 1,
+                  spec.strategy_version) for _ in range(20)],
+            )
+            broker.db.commit()
+            self.assertEqual(broker.resolve_adaptation({"m1": feature}), 20)
+            state = broker.adaptation_states()[spec.id]
+            self.assertEqual(state.state, "paused")
+            self.assertEqual(state.allocation_multiplier, 0)
+            self.assertLess(state.upper_bound or 0, 0)
+            broker.close()
 
     def test_feature_history_survives_restart_and_is_bounded(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -198,7 +273,6 @@ class BrokerAndEngineTests(unittest.TestCase):
             try:
                 continuous_engine = TradingEngine(
                     SyntheticMarketData(10), build_agents(specs), continuous_broker,
-                    enable_heartbeat=False,
                 )
                 for _ in range(12):
                     continuous_engine.cycle(max_markets=10)
@@ -212,7 +286,6 @@ class BrokerAndEngineTests(unittest.TestCase):
                 try:
                     TradingEngine(
                         source, build_agents(specs), restarted_broker,
-                        enable_heartbeat=False,
                     ).cycle(max_markets=10)
                 finally:
                     restarted_broker.close()
@@ -308,7 +381,6 @@ class BrokerAndEngineTests(unittest.TestCase):
             try:
                 engine = TradingEngine(
                     self.single_market_data(), [ScriptedAgent()], broker,
-                    enable_heartbeat=False,
                 )
                 engine.cycle()
                 self.assertEqual(broker.db.execute("SELECT COUNT(*) FROM positions").fetchone()[0], 1)

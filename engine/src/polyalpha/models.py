@@ -224,6 +224,13 @@ class FeatureVector:
     event_residual: float
     complement_buy_edge: float
     complement_sell_edge: float
+    observation_count: int = 0
+    history_span_seconds: float = 0.0
+    history_ready: bool = False
+    news_relevance: float = 0.0
+    news_direction: float = 0.0
+    news_sources: int = 0
+    news_headlines: int = 0
 
 
 @dataclass(frozen=True)
@@ -241,7 +248,7 @@ class AgentSpec:
     params: dict[str, float]
     allocation_status: str = "active"
     allocation_tier: str = "probation"
-    strategy_version: str = "v2.1-continuous"
+    strategy_version: str = "v2.2-adaptive-news"
 
 
 @dataclass(frozen=True)

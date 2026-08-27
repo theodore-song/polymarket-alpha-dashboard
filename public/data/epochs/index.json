@@ -1,7 +1,7 @@
 [
   {
     "id": "v2-edge-only",
-    "label": "V2.1 · Continuous five-minute trading",
+    "label": "V2.2 · Adaptive news-confirmed alpha",
     "file": "/data/snapshot.json",
     "current": true,
     "immutable": false

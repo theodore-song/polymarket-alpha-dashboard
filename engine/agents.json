@@ -18,7 +18,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Multi-horizon trend continuation confirmed by order-book imbalance."
   },
   {
@@ -40,7 +40,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Multi-horizon trend continuation confirmed by order-book imbalance."
   },
   {
@@ -62,7 +62,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Multi-horizon trend continuation confirmed by order-book imbalance."
   },
   {
@@ -84,7 +84,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Multi-horizon trend continuation confirmed by order-book imbalance."
   },
   {
@@ -106,7 +106,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Multi-horizon trend continuation confirmed by order-book imbalance."
   },
   {
@@ -128,7 +128,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Multi-horizon trend continuation confirmed by order-book imbalance."
   },
   {
@@ -150,7 +150,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Multi-horizon trend continuation confirmed by order-book imbalance."
   },
   {
@@ -172,7 +172,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Multi-horizon trend continuation confirmed by order-book imbalance."
   },
   {
@@ -194,7 +194,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Multi-horizon trend continuation confirmed by order-book imbalance."
   },
   {
@@ -216,7 +216,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Multi-horizon trend continuation confirmed by order-book imbalance."
   },
   {
@@ -238,7 +238,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Fade statistically extreme moves toward a rolling fair-value anchor."
   },
   {
@@ -260,7 +260,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Fade statistically extreme moves toward a rolling fair-value anchor."
   },
   {
@@ -282,7 +282,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Fade statistically extreme moves toward a rolling fair-value anchor."
   },
   {
@@ -304,7 +304,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Fade statistically extreme moves toward a rolling fair-value anchor."
   },
   {
@@ -326,7 +326,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Fade statistically extreme moves toward a rolling fair-value anchor."
   },
   {
@@ -348,7 +348,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Fade statistically extreme moves toward a rolling fair-value anchor."
   },
   {
@@ -370,7 +370,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Fade statistically extreme moves toward a rolling fair-value anchor."
   },
   {
@@ -392,7 +392,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Fade statistically extreme moves toward a rolling fair-value anchor."
   },
   {
@@ -414,7 +414,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Fade statistically extreme moves toward a rolling fair-value anchor."
   },
   {
@@ -436,7 +436,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Fade statistically extreme moves toward a rolling fair-value anchor."
   },
   {
@@ -458,7 +458,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Use top-of-book depth imbalance and microprice pressure before price reacts."
   },
   {
@@ -480,7 +480,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Use top-of-book depth imbalance and microprice pressure before price reacts."
   },
   {
@@ -502,7 +502,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Use top-of-book depth imbalance and microprice pressure before price reacts."
   },
   {
@@ -524,7 +524,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Use top-of-book depth imbalance and microprice pressure before price reacts."
   },
   {
@@ -546,7 +546,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Use top-of-book depth imbalance and microprice pressure before price reacts."
   },
   {
@@ -568,7 +568,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Use top-of-book depth imbalance and microprice pressure before price reacts."
   },
   {
@@ -590,7 +590,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Use top-of-book depth imbalance and microprice pressure before price reacts."
   },
   {
@@ -612,7 +612,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Use top-of-book depth imbalance and microprice pressure before price reacts."
   },
   {
@@ -634,7 +634,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Use top-of-book depth imbalance and microprice pressure before price reacts."
   },
   {
@@ -656,7 +656,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Use top-of-book depth imbalance and microprice pressure before price reacts."
   },
   {
@@ -678,7 +678,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Trade directional moves only when they are large relative to recent noise."
   },
   {
@@ -700,7 +700,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Trade directional moves only when they are large relative to recent noise."
   },
   {
@@ -722,7 +722,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Trade directional moves only when they are large relative to recent noise."
   },
   {
@@ -744,7 +744,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Trade directional moves only when they are large relative to recent noise."
   },
   {
@@ -766,7 +766,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Trade directional moves only when they are large relative to recent noise."
   },
   {
@@ -788,7 +788,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Trade directional moves only when they are large relative to recent noise."
   },
   {
@@ -810,7 +810,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Trade directional moves only when they are large relative to recent noise."
   },
   {
@@ -832,7 +832,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Trade directional moves only when they are large relative to recent noise."
   },
   {
@@ -854,7 +854,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Trade directional moves only when they are large relative to recent noise."
   },
   {
@@ -876,7 +876,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Trade directional moves only when they are large relative to recent noise."
   },
   {
@@ -898,8 +898,8 @@
     },
     "allocation_status": "shadow",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
-    "strategy": "Shrink overconfident longshots/favorites toward calibrated base probabilities."
+    "strategy_version": "v2.2-adaptive-news",
+    "strategy": "Quarantined after audit; retained only as an immutable research control."
   },
   {
     "id": "A042",
@@ -920,8 +920,8 @@
     },
     "allocation_status": "shadow",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
-    "strategy": "Shrink overconfident longshots/favorites toward calibrated base probabilities."
+    "strategy_version": "v2.2-adaptive-news",
+    "strategy": "Quarantined after audit; retained only as an immutable research control."
   },
   {
     "id": "A043",
@@ -942,8 +942,8 @@
     },
     "allocation_status": "shadow",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
-    "strategy": "Shrink overconfident longshots/favorites toward calibrated base probabilities."
+    "strategy_version": "v2.2-adaptive-news",
+    "strategy": "Quarantined after audit; retained only as an immutable research control."
   },
   {
     "id": "A044",
@@ -964,8 +964,8 @@
     },
     "allocation_status": "shadow",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
-    "strategy": "Shrink overconfident longshots/favorites toward calibrated base probabilities."
+    "strategy_version": "v2.2-adaptive-news",
+    "strategy": "Quarantined after audit; retained only as an immutable research control."
   },
   {
     "id": "A045",
@@ -986,8 +986,8 @@
     },
     "allocation_status": "shadow",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
-    "strategy": "Shrink overconfident longshots/favorites toward calibrated base probabilities."
+    "strategy_version": "v2.2-adaptive-news",
+    "strategy": "Quarantined after audit; retained only as an immutable research control."
   },
   {
     "id": "A046",
@@ -1008,8 +1008,8 @@
     },
     "allocation_status": "shadow",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
-    "strategy": "Shrink overconfident longshots/favorites toward calibrated base probabilities."
+    "strategy_version": "v2.2-adaptive-news",
+    "strategy": "Quarantined after audit; retained only as an immutable research control."
   },
   {
     "id": "A047",
@@ -1030,8 +1030,8 @@
     },
     "allocation_status": "shadow",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
-    "strategy": "Shrink overconfident longshots/favorites toward calibrated base probabilities."
+    "strategy_version": "v2.2-adaptive-news",
+    "strategy": "Quarantined after audit; retained only as an immutable research control."
   },
   {
     "id": "A048",
@@ -1052,8 +1052,8 @@
     },
     "allocation_status": "shadow",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
-    "strategy": "Shrink overconfident longshots/favorites toward calibrated base probabilities."
+    "strategy_version": "v2.2-adaptive-news",
+    "strategy": "Quarantined after audit; retained only as an immutable research control."
   },
   {
     "id": "A049",
@@ -1074,8 +1074,8 @@
     },
     "allocation_status": "shadow",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
-    "strategy": "Shrink overconfident longshots/favorites toward calibrated base probabilities."
+    "strategy_version": "v2.2-adaptive-news",
+    "strategy": "Quarantined after audit; retained only as an immutable research control."
   },
   {
     "id": "A050",
@@ -1096,8 +1096,8 @@
     },
     "allocation_status": "shadow",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
-    "strategy": "Shrink overconfident longshots/favorites toward calibrated base probabilities."
+    "strategy_version": "v2.2-adaptive-news",
+    "strategy": "Quarantined after audit; retained only as an immutable research control."
   },
   {
     "id": "A051",
@@ -1118,7 +1118,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Require volume acceleration to confirm price information rather than noise."
   },
   {
@@ -1140,7 +1140,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Require volume acceleration to confirm price information rather than noise."
   },
   {
@@ -1162,7 +1162,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Require volume acceleration to confirm price information rather than noise."
   },
   {
@@ -1184,7 +1184,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Require volume acceleration to confirm price information rather than noise."
   },
   {
@@ -1206,7 +1206,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Require volume acceleration to confirm price information rather than noise."
   },
   {
@@ -1228,7 +1228,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Require volume acceleration to confirm price information rather than noise."
   },
   {
@@ -1250,7 +1250,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Require volume acceleration to confirm price information rather than noise."
   },
   {
@@ -1272,7 +1272,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Require volume acceleration to confirm price information rather than noise."
   },
   {
@@ -1294,7 +1294,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Require volume acceleration to confirm price information rather than noise."
   },
   {
@@ -1316,7 +1316,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Require volume acceleration to confirm price information rather than noise."
   },
   {
@@ -1338,7 +1338,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Change the trend/reversion mix as resolution approaches."
   },
   {
@@ -1360,7 +1360,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Change the trend/reversion mix as resolution approaches."
   },
   {
@@ -1382,7 +1382,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Change the trend/reversion mix as resolution approaches."
   },
   {
@@ -1404,7 +1404,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Change the trend/reversion mix as resolution approaches."
   },
   {
@@ -1426,7 +1426,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Change the trend/reversion mix as resolution approaches."
   },
   {
@@ -1448,7 +1448,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Change the trend/reversion mix as resolution approaches."
   },
   {
@@ -1470,7 +1470,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Change the trend/reversion mix as resolution approaches."
   },
   {
@@ -1492,7 +1492,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Change the trend/reversion mix as resolution approaches."
   },
   {
@@ -1514,7 +1514,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Change the trend/reversion mix as resolution approaches."
   },
   {
@@ -1536,7 +1536,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Change the trend/reversion mix as resolution approaches."
   },
   {
@@ -1558,7 +1558,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Normalize mutually-exclusive negative-risk event outcomes and fade dislocations."
   },
   {
@@ -1580,7 +1580,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Normalize mutually-exclusive negative-risk event outcomes and fade dislocations."
   },
   {
@@ -1602,7 +1602,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Normalize mutually-exclusive negative-risk event outcomes and fade dislocations."
   },
   {
@@ -1624,7 +1624,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Normalize mutually-exclusive negative-risk event outcomes and fade dislocations."
   },
   {
@@ -1646,7 +1646,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Normalize mutually-exclusive negative-risk event outcomes and fade dislocations."
   },
   {
@@ -1668,7 +1668,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Normalize mutually-exclusive negative-risk event outcomes and fade dislocations."
   },
   {
@@ -1690,7 +1690,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Normalize mutually-exclusive negative-risk event outcomes and fade dislocations."
   },
   {
@@ -1712,7 +1712,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Normalize mutually-exclusive negative-risk event outcomes and fade dislocations."
   },
   {
@@ -1734,7 +1734,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Normalize mutually-exclusive negative-risk event outcomes and fade dislocations."
   },
   {
@@ -1756,7 +1756,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Normalize mutually-exclusive negative-risk event outcomes and fade dislocations."
   },
   {
@@ -1778,7 +1778,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Buy complete YES+NO sets only when executable asks plus fees cost below $1."
   },
   {
@@ -1800,7 +1800,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Buy complete YES+NO sets only when executable asks plus fees cost below $1."
   },
   {
@@ -1822,7 +1822,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Buy complete YES+NO sets only when executable asks plus fees cost below $1."
   },
   {
@@ -1844,7 +1844,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Buy complete YES+NO sets only when executable asks plus fees cost below $1."
   },
   {
@@ -1866,7 +1866,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Buy complete YES+NO sets only when executable asks plus fees cost below $1."
   },
   {
@@ -1888,7 +1888,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Buy complete YES+NO sets only when executable asks plus fees cost below $1."
   },
   {
@@ -1910,7 +1910,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Buy complete YES+NO sets only when executable asks plus fees cost below $1."
   },
   {
@@ -1932,7 +1932,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Buy complete YES+NO sets only when executable asks plus fees cost below $1."
   },
   {
@@ -1954,7 +1954,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Buy complete YES+NO sets only when executable asks plus fees cost below $1."
   },
   {
@@ -1976,7 +1976,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Buy complete YES+NO sets only when executable asks plus fees cost below $1."
   },
   {
@@ -1998,7 +1998,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Rest conservative fair-value orders to harvest spread without taker fees."
   },
   {
@@ -2020,7 +2020,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Rest conservative fair-value orders to harvest spread without taker fees."
   },
   {
@@ -2042,7 +2042,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Rest conservative fair-value orders to harvest spread without taker fees."
   },
   {
@@ -2064,7 +2064,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Rest conservative fair-value orders to harvest spread without taker fees."
   },
   {
@@ -2086,7 +2086,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Rest conservative fair-value orders to harvest spread without taker fees."
   },
   {
@@ -2108,7 +2108,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Rest conservative fair-value orders to harvest spread without taker fees."
   },
   {
@@ -2130,7 +2130,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Rest conservative fair-value orders to harvest spread without taker fees."
   },
   {
@@ -2152,7 +2152,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Rest conservative fair-value orders to harvest spread without taker fees."
   },
   {
@@ -2174,7 +2174,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Rest conservative fair-value orders to harvest spread without taker fees."
   },
   {
@@ -2196,7 +2196,7 @@
     },
     "allocation_status": "active",
     "allocation_tier": "probation",
-    "strategy_version": "v2.1-continuous",
+    "strategy_version": "v2.2-adaptive-news",
     "strategy": "Rest conservative fair-value orders to harvest spread without taker fees."
   }
 ]

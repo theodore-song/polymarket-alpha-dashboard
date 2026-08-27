@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import sqlite3
+import math
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
 from .features import PricePoint
 from .models import Book, FeatureVector, Market, Signal
+from .news import NewsItem
 from .risk import AgentRiskState
 
 
@@ -20,6 +22,17 @@ class BrokerSummary:
     return_pct: float
     drawdown_pct: float
     trades: int
+
+
+@dataclass(frozen=True)
+class AdaptationState:
+    agent_id: str
+    samples: int
+    mean_return: float
+    lower_bound: float | None
+    upper_bound: float | None
+    allocation_multiplier: float
+    state: str
 
 
 class PaperBroker:
@@ -43,7 +56,8 @@ class PaperBroker:
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, family TEXT NOT NULL,
                 allocation_status TEXT NOT NULL DEFAULT 'active',
                 allocation_tier TEXT NOT NULL DEFAULT 'probation',
-                strategy_version TEXT NOT NULL DEFAULT 'v2.1-continuous',
+                strategy_version TEXT NOT NULL DEFAULT 'v2.2-adaptive-news',
+                horizon INTEGER NOT NULL DEFAULT 1,
                 initial_cash REAL NOT NULL, cash REAL NOT NULL,
                 equity REAL NOT NULL, high_water REAL NOT NULL,
                 registered_at REAL NOT NULL DEFAULT 0,
@@ -94,13 +108,38 @@ class PaperBroker:
                 alpha_fills INTEGER NOT NULL DEFAULT 0,
                 heartbeat_fills INTEGER NOT NULL DEFAULT 0,
                 maker_fills INTEGER NOT NULL DEFAULT 0,
+                retirement_fills INTEGER NOT NULL DEFAULT 0,
+                news_items INTEGER NOT NULL DEFAULT 0,
+                strategies_paused INTEGER NOT NULL DEFAULT 0,
                 active_equity REAL, shadow_equity REAL, combined_equity REAL,
                 error TEXT
+            );
+            CREATE TABLE IF NOT EXISTS news_items (
+                id TEXT PRIMARY KEY, source TEXT NOT NULL, title TEXT NOT NULL,
+                link TEXT NOT NULL, published_at REAL NOT NULL, fetched_at REAL NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS adaptation_evaluations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_id TEXT NOT NULL, market_id TEXT NOT NULL, token_id TEXT NOT NULL,
+                outcome TEXT NOT NULL, entry_price REAL NOT NULL,
+                entry_fee_per_share REAL NOT NULL, fee_rate REAL NOT NULL,
+                created_at REAL NOT NULL, due_at REAL NOT NULL,
+                resolved_at REAL, future_bid REAL, realized_return REAL,
+                strategy_version TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS strategy_adaptation (
+                agent_id TEXT PRIMARY KEY, samples INTEGER NOT NULL DEFAULT 0,
+                mean_return REAL NOT NULL DEFAULT 0, m2 REAL NOT NULL DEFAULT 0,
+                lower_bound REAL, upper_bound REAL,
+                allocation_multiplier REAL NOT NULL DEFAULT 1,
+                state TEXT NOT NULL DEFAULT 'warming', updated_at REAL NOT NULL
             );
             CREATE INDEX IF NOT EXISTS trades_agent_idx ON trades(agent_id, timestamp);
             CREATE INDEX IF NOT EXISTS positions_agent_idx ON positions(agent_id);
             CREATE INDEX IF NOT EXISTS history_market_time_idx ON market_history(market_id,timestamp,id);
             CREATE INDEX IF NOT EXISTS cycles_started_idx ON cycle_runs(started_at);
+            CREATE INDEX IF NOT EXISTS news_published_idx ON news_items(published_at);
+            CREATE INDEX IF NOT EXISTS adaptation_due_idx ON adaptation_evaluations(resolved_at,due_at);
             """
         )
         additions = {
@@ -109,6 +148,7 @@ class PaperBroker:
                 "allocation_tier": "TEXT NOT NULL DEFAULT 'probation'",
                 "strategy_version": "TEXT NOT NULL DEFAULT 'v2.1-continuous'",
                 "registered_at": "REAL NOT NULL DEFAULT 0",
+                "horizon": "INTEGER NOT NULL DEFAULT 1",
             },
             "pending_orders": {
                 "estimated_yes_probability": "REAL",
@@ -132,6 +172,11 @@ class PaperBroker:
                 "bucket_start": "INTEGER",
                 "reason": "TEXT NOT NULL DEFAULT 'legacy'",
             },
+            "cycle_runs": {
+                "retirement_fills": "INTEGER NOT NULL DEFAULT 0",
+                "news_items": "INTEGER NOT NULL DEFAULT 0",
+                "strategies_paused": "INTEGER NOT NULL DEFAULT 0",
+            },
         }
         for table, columns in additions.items():
             existing = {str(row[1]) for row in self.db.execute(f"PRAGMA table_info({table})")}
@@ -147,19 +192,25 @@ class PaperBroker:
         now = time.time()
         self.db.executemany(
             """INSERT INTO agents
-               (id,name,family,allocation_status,allocation_tier,strategy_version,
+               (id,name,family,allocation_status,allocation_tier,strategy_version,horizon,
                 initial_cash,cash,equity,high_water,registered_at,updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
                name=excluded.name, family=excluded.family,
                allocation_status=excluded.allocation_status,
                allocation_tier=excluded.allocation_tier,
-               strategy_version=excluded.strategy_version""",
+               strategy_version=excluded.strategy_version,
+               horizon=excluded.horizon""",
             [
                 (s.id, s.name, s.family, s.allocation_status, s.allocation_tier,
-                 s.strategy_version, self.starting_cash, self.starting_cash,
+                 s.strategy_version, s.horizon, self.starting_cash, self.starting_cash,
                  self.starting_cash, self.starting_cash, now, now)
                 for s in specs
             ],
+        )
+        self.db.executemany(
+            """INSERT INTO strategy_adaptation(agent_id,updated_at) VALUES(?,?)
+               ON CONFLICT(agent_id) DO NOTHING""",
+            [(s.id, now) for s in specs],
         )
         self.db.commit()
 
@@ -223,19 +274,37 @@ class PaperBroker:
                    shares=excluded.shares, avg_price=excluded.avg_price""",
                 (agent_id, market.id, market.event_id, token_id, outcome, new_shares, avg_price),
             )
-        self.db.execute(
+        executed_at = time.time()
+        cursor = self.db.execute(
             """INSERT INTO trades(timestamp,agent_id,market_id,token_id,outcome,side,shares,price,fee,execution,reason,
                estimated_yes_probability,market_yes_probability,net_edge,spread,fee_rate,strategy_version,decision_class)
                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (time.time(), agent_id, market.id, token_id, outcome, side, shares, price, fee,
+            (executed_at, agent_id, market.id, token_id, outcome, side, shares, price, fee,
              execution, reason, estimated_yes_probability, market_yes_probability, net_edge,
              spread, market.fee_rate, self._strategy_version(agent_id), decision_class),
         )
+        if side == "BUY" and decision_class == "alpha":
+            agent = self.db.execute(
+                "SELECT horizon,strategy_version FROM agents WHERE id=?", (agent_id,)
+            ).fetchone()
+            horizon = max(1, int(agent["horizon"] if agent else 1))
+            version = str(agent["strategy_version"] if agent else "v2.2-adaptive-news")
+            self.db.execute(
+                """INSERT INTO adaptation_evaluations(
+                   agent_id,market_id,token_id,outcome,entry_price,entry_fee_per_share,
+                   fee_rate,created_at,due_at,strategy_version
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    agent_id, market.id, token_id, outcome, price,
+                    fee / max(1e-12, shares), market.fee_rate, executed_at,
+                    executed_at + horizon * 5 * 60, version,
+                ),
+            )
         return shares
 
     def _strategy_version(self, agent_id: str) -> str:
         row = self.db.execute("SELECT strategy_version FROM agents WHERE id=?", (agent_id,)).fetchone()
-        return str(row[0]) if row and row[0] else "v2.1-continuous"
+        return str(row[0]) if row and row[0] else "v2.2-adaptive-news"
 
     def _liquidate_market(
         self, agent_id: str, f: FeatureVector, reason: str,
@@ -256,6 +325,23 @@ class PaperBroker:
                               signal.estimated_yes_probability if signal else None,
                               f.mid_yes, signal.edge if signal else None, f.spread, decision_class)
         self.db.execute("DELETE FROM pending_orders WHERE agent_id=? AND market_id=?", (agent_id, f.market.id))
+
+    def retire_market(self, agent_id: str, f: FeatureVector, reason: str) -> None:
+        self._liquidate_market(agent_id, f, reason, decision_class="retirement")
+        self.db.commit()
+
+    def cancel_pending(self, agent_id: str) -> None:
+        self.db.execute("DELETE FROM pending_orders WHERE agent_id=?", (agent_id,))
+        self.db.commit()
+
+    def cancel_stale_pending(self, strategy_version: str) -> int:
+        """Remove quotes authored by an older engine before they can fill."""
+        cursor = self.db.execute(
+            "DELETE FROM pending_orders WHERE COALESCE(strategy_version,'') != ?",
+            (strategy_version,),
+        )
+        self.db.commit()
+        return int(cursor.rowcount)
 
     def rebalance(
         self, signal: Signal, f: FeatureVector, target_notional: float,
@@ -328,12 +414,12 @@ class PaperBroker:
                 continue
             book = f.yes_book if row["token_id"] == binary[0][1] else f.no_book
             limit = float(row["limit_price"])
-            # Conservative snapshot fill: the quote must be crossed or the same-side
-            # best price must move through it. No rebates/rewards are credited.
+            # A resting quote fills only when the opposite executable quote reaches
+            # its limit. Same-side quote movement is not evidence of a fill.
             if row["side"] == "BUY":
-                crossed = (book.best_ask is not None and book.best_ask <= limit) or (book.best_bid is not None and book.best_bid < limit)
+                crossed = book.best_ask is not None and book.best_ask <= limit
             else:
-                crossed = (book.best_bid is not None and book.best_bid >= limit) or (book.best_ask is not None and book.best_ask > limit)
+                crossed = book.best_bid is not None and book.best_bid >= limit
             if crossed:
                 self._execute(row["agent_id"], f.market, row["token_id"], row["outcome"], row["side"],
                               float(row["shares"]), limit, "maker", row["reason"],
@@ -397,6 +483,117 @@ class PaperBroker:
                 )
         self.db.commit()
 
+    def upsert_news(self, items: list[NewsItem], retention_seconds: float = 48 * 3600) -> None:
+        self.db.executemany(
+            """INSERT INTO news_items(id,source,title,link,published_at,fetched_at)
+               VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
+               source=excluded.source,title=excluded.title,link=excluded.link,
+               published_at=excluded.published_at,fetched_at=excluded.fetched_at""",
+            [
+                (item.id, item.source, item.title, item.link, item.published_at, item.fetched_at)
+                for item in items
+            ],
+        )
+        self.db.execute("DELETE FROM news_items WHERE published_at<?", (time.time() - retention_seconds,))
+        self.db.commit()
+
+    def recent_news(self, max_age_seconds: float = 12 * 3600, limit: int = 500) -> list[NewsItem]:
+        return [
+            NewsItem(
+                str(row["id"]), str(row["source"]), str(row["title"]), str(row["link"]),
+                float(row["published_at"]), float(row["fetched_at"]),
+            )
+            for row in self.db.execute(
+                """SELECT * FROM news_items WHERE published_at>=?
+                   ORDER BY published_at DESC LIMIT ?""",
+                (time.time() - max_age_seconds, limit),
+            )
+        ]
+
+    def resolve_adaptation(self, features: dict[str, FeatureVector]) -> int:
+        now = time.time()
+        resolved = 0
+        rows = self.db.execute(
+            """SELECT * FROM adaptation_evaluations
+               WHERE resolved_at IS NULL AND due_at<=? ORDER BY due_at,id""",
+            (now,),
+        ).fetchall()
+        for row in rows:
+            feature = features.get(str(row["market_id"]))
+            if feature is None:
+                continue
+            binary = feature.market.binary_tokens()
+            if binary is None:
+                continue
+            book = feature.yes_book if row["token_id"] == binary[0][1] else feature.no_book
+            if book.best_bid is None:
+                continue
+            future_bid = float(book.best_bid)
+            exit_fee = float(row["fee_rate"]) * future_bid * (1.0 - future_bid)
+            entry_price = float(row["entry_price"])
+            realized_return = (
+                future_bid - entry_price - float(row["entry_fee_per_share"]) - exit_fee
+            ) / max(0.01, entry_price)
+            self.db.execute(
+                """UPDATE adaptation_evaluations SET resolved_at=?,future_bid=?,realized_return=?
+                   WHERE id=?""",
+                (now, future_bid, realized_return, row["id"]),
+            )
+            adaptive = self.db.execute(
+                "SELECT * FROM strategy_adaptation WHERE agent_id=?", (row["agent_id"],)
+            ).fetchone()
+            samples = int(adaptive["samples"] if adaptive else 0)
+            mean = float(adaptive["mean_return"] if adaptive else 0.0)
+            m2 = float(adaptive["m2"] if adaptive else 0.0)
+            new_samples = samples + 1
+            delta = realized_return - mean
+            new_mean = mean + delta / new_samples
+            new_m2 = m2 + delta * (realized_return - new_mean)
+            lower: float | None = None
+            upper: float | None = None
+            multiplier = 1.0
+            state = "warming"
+            if new_samples >= 2:
+                variance = max(0.0, new_m2 / (new_samples - 1))
+                error = math.sqrt(variance / new_samples)
+                lower, upper = new_mean - 1.96 * error, new_mean + 1.96 * error
+            if new_samples >= 20 and upper is not None and upper < 0:
+                multiplier, state = 0.0, "paused"
+            elif new_samples >= 20 and lower is not None and lower > 0:
+                multiplier, state = 1.25, "validated"
+            elif new_samples >= 10 and new_mean < 0:
+                multiplier, state = 0.25, "reduced"
+            elif new_samples >= 10:
+                multiplier, state = 0.75, "probation"
+            self.db.execute(
+                """INSERT INTO strategy_adaptation(
+                   agent_id,samples,mean_return,m2,lower_bound,upper_bound,
+                   allocation_multiplier,state,updated_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(agent_id) DO UPDATE SET
+                   samples=excluded.samples,mean_return=excluded.mean_return,m2=excluded.m2,
+                   lower_bound=excluded.lower_bound,upper_bound=excluded.upper_bound,
+                   allocation_multiplier=excluded.allocation_multiplier,
+                   state=excluded.state,updated_at=excluded.updated_at""",
+                (
+                    row["agent_id"], new_samples, new_mean, new_m2, lower, upper,
+                    multiplier, state, now,
+                ),
+            )
+            resolved += 1
+        self.db.commit()
+        return resolved
+
+    def adaptation_states(self) -> dict[str, AdaptationState]:
+        return {
+            str(row["agent_id"]): AdaptationState(
+                str(row["agent_id"]), int(row["samples"]), float(row["mean_return"]),
+                float(row["lower_bound"]) if row["lower_bound"] is not None else None,
+                float(row["upper_bound"]) if row["upper_bound"] is not None else None,
+                float(row["allocation_multiplier"]), str(row["state"]),
+            )
+            for row in self.db.execute("SELECT * FROM strategy_adaptation")
+        }
+
     def load_feature_history(self, limit: int = 128) -> dict[str, list[PricePoint]]:
         result: dict[str, list[PricePoint]] = {}
         rows = self.db.execute(
@@ -458,7 +655,7 @@ class PaperBroker:
         return int(row[0]) if row else 0
 
     def fill_counts_since(self, trade_id: int) -> dict[str, int]:
-        counts = {"alpha": 0, "heartbeat": 0, "maker": 0}
+        counts = {"alpha": 0, "heartbeat": 0, "maker": 0, "retirement": 0}
         for row in self.db.execute(
             """SELECT decision_class,execution,COUNT(*) AS n FROM trades
                WHERE id>? AND side IN ('BUY','SELL')
@@ -468,8 +665,10 @@ class PaperBroker:
             value = int(row["n"])
             if row["decision_class"] == "heartbeat":
                 counts["heartbeat"] += value
-            else:
+            elif row["decision_class"] == "alpha":
                 counts["alpha"] += value
+            elif row["decision_class"] == "retirement":
+                counts["retirement"] += value
             if row["execution"] == "maker":
                 counts["maker"] += value
         return counts
@@ -492,6 +691,9 @@ class PaperBroker:
         alpha_fills: int = 0,
         heartbeat_fills: int = 0,
         maker_fills: int = 0,
+        retirement_fills: int = 0,
+        news_items: int = 0,
+        strategies_paused: int = 0,
         error: str | None = None,
     ) -> None:
         books = dict(
@@ -504,11 +706,13 @@ class PaperBroker:
         self.db.execute(
             """UPDATE cycle_runs SET finished_at=?,status=?,agents_evaluated=?,
                markets_discovered=?,markets_with_books=?,alpha_fills=?,heartbeat_fills=?,
-               maker_fills=?,active_equity=?,shadow_equity=?,combined_equity=?,error=?
+               maker_fills=?,retirement_fills=?,news_items=?,strategies_paused=?,
+               active_equity=?,shadow_equity=?,combined_equity=?,error=?
                WHERE cycle_id=?""",
             (
                 time.time(), status, agents_evaluated, markets_discovered,
                 markets_with_books, alpha_fills, heartbeat_fills, maker_fills,
+                retirement_fills, news_items, strategies_paused,
                 active, shadow, active + shadow, error, cycle_id,
             ),
         )

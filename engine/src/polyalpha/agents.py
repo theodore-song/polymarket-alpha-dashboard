@@ -31,10 +31,7 @@ class StrategyAgent:
             adjustment = 0.010 * speed * math.tanh(standardized / 2.0)
             return p + adjustment, "volatility-scaled breakout"
         if family == "crowd_bias":
-            # Prediction markets can overprice exciting low-probability tails; shrinkage is
-            # deliberately small and must still clear executable costs.
-            adjustment = self.spec.params["shrink"] * (0.5 - p) * (abs(p - 0.5) ** 1.25)
-            return p + adjustment, "favorite/longshot calibration shrinkage"
+            return p, "crowd-bias model quarantined after calibration audit"
         if family == "attention":
             confirmation = math.tanh(20.0 * f.volume_acceleration)
             adjustment = speed * f.return_3 * confirmation + 0.004 * f.imbalance
@@ -57,10 +54,36 @@ class StrategyAgent:
         return p, "executable complete-set arbitrage"
 
     @staticmethod
+    def _news_adjustment(f: FeatureVector) -> tuple[float, str]:
+        """Use independent headlines only when the live book confirms direction."""
+        if (
+            f.news_sources < 2
+            or f.news_relevance < 0.30
+            or abs(f.news_direction) < 0.20
+        ):
+            return 0.0, ""
+        market_confirmation = f.return_1 + 0.002 * f.imbalance
+        if abs(market_confirmation) < 0.0005 or market_confirmation * f.news_direction <= 0:
+            return 0.0, ""
+        adjustment = math.copysign(
+            min(0.01, 0.0025 + 0.0075 * f.news_relevance),
+            f.news_direction,
+        )
+        return adjustment, (
+            f"confirmed external-news overlay ({f.news_headlines} headlines, "
+            f"{f.news_sources} sources)"
+        )
+
+    @staticmethod
     def _fee_per_share(price: float, fee_rate: float) -> float:
         return fee_rate * price * (1.0 - price)
 
     def decide(self, f: FeatureVector) -> Signal:
+        if self.spec.family == "crowd_bias":
+            return Signal(
+                self.spec.id, f.market.id, None, f.mid_yes, 0.0, 0.0, 0.0,
+                "taker", "crowd-bias model quarantined after calibration audit", None,
+            )
         if self.spec.family == "complement_arb":
             fee = self._fee_per_share(f.yes_book.best_ask or 1.0, f.market.fee_rate)
             fee += self._fee_per_share(f.no_book.best_ask or 1.0, f.market.fee_rate)
@@ -79,7 +102,28 @@ class StrategyAgent:
                 "BOTH",
             )
 
+        news_adjustment, news_reason = self._news_adjustment(f)
+        history_families = {
+            "momentum", "mean_reversion", "orderflow", "volatility_breakout",
+            "attention", "time_catalyst",
+        }
+        if self.spec.family in history_families and not f.history_ready and not news_reason:
+            return Signal(
+                self.spec.id, f.market.id, None, f.mid_yes, 0.0, 0.0, 0.0,
+                self.spec.execution,
+                f"warming history ({f.observation_count}/12 time-consistent observations)",
+                None,
+            )
+        if self.spec.family == "liquidity_maker" and f.news_relevance >= 0.30:
+            return Signal(
+                self.spec.id, f.market.id, None, f.mid_yes, 0.0, 0.0, 0.0,
+                self.spec.execution, "news-risk maker pause", None,
+            )
+
         estimated, reason = self._estimate_probability(f)
+        if news_reason:
+            estimated += news_adjustment
+            reason = f"{reason}; {news_reason}"
         estimated = clamp(estimated, 0.005, 0.995)
         if self.spec.execution == "maker":
             yes_cost = f.yes_book.best_bid or 1.0
@@ -109,36 +153,6 @@ class StrategyAgent:
             reason=reason,
             preferred_outcome=preferred_outcome,
         )
-
-    def heartbeat_signal(self, f: FeatureVector) -> Signal:
-        """Create a tiny, explicitly non-alpha fallback after prolonged inactivity."""
-        if self.spec.family == "complement_arb":
-            estimated = f.mid_yes
-            reason = "complete-set family heartbeat"
-        else:
-            estimated, reason = self._estimate_probability(f)
-            estimated = clamp(estimated, 0.005, 0.995)
-        yes_cost = f.yes_book.best_ask or 1.0
-        no_cost = f.no_book.best_ask or 1.0
-        yes_score = estimated - yes_cost - self._fee_per_share(yes_cost, f.market.fee_rate)
-        no_score = (1.0 - estimated) - no_cost - self._fee_per_share(no_cost, f.market.fee_rate)
-        preferred = "Yes" if yes_score >= no_score else "No"
-        executable_edge = max(yes_score, no_score)
-        model_separation = abs(estimated - f.mid_yes)
-        return Signal(
-            agent_id=self.spec.id,
-            market_id=f.market.id,
-            outcome=preferred,
-            estimated_yes_probability=estimated,
-            edge=executable_edge,
-            confidence=clamp(model_separation / max(0.005, self.spec.threshold), 0.0, 0.25),
-            target_fraction=0.0005,
-            execution="taker",
-            reason=f"24-hour inactivity heartbeat; {reason}; no alpha edge claimed",
-            preferred_outcome=preferred,
-            signal_kind="heartbeat",
-        )
-
 
 def build_agents(specs: list[AgentSpec]) -> list[StrategyAgent]:
     return [StrategyAgent(spec) for spec in specs]
