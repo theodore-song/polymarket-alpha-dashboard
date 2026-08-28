@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from polyalpha.agents import StrategyAgent, build_agents
+from polyalpha.api import PolymarketClient
 from polyalpha.broker import PaperBroker
 from polyalpha.engine import TradingEngine
 from polyalpha.factory import build_agent_specs
@@ -40,6 +41,34 @@ class FactoryTests(unittest.TestCase):
         self.assertEqual(market.tokens["Yes"], "yes-token")
         self.assertAlmostEqual(market.outcome_prices["No"], 0.39)
         self.assertAlmostEqual(market.fee_rate, 0.04)
+
+    def test_documented_price_history_is_batched_and_validated(self) -> None:
+        class FakeHTTP:
+            def __init__(self):
+                self.payloads = []
+
+            def request(self, method, url, payload=None):
+                self.payloads.append(payload)
+                return {"history": {
+                    token: [{"t": 100, "p": .4}, {"t": 200, "p": .5}, {"t": 0, "p": 2}]
+                    for token in payload["markets"]
+                }}
+
+        http = FakeHTTP()
+        history = PolymarketClient(http=http).price_histories(
+            [f"token-{index}" for index in range(21)]
+        )
+        self.assertEqual(len(http.payloads), 2)
+        self.assertTrue(all(len(payload["markets"]) <= 20 for payload in http.payloads))
+        self.assertEqual(history["token-0"], [(100.0, .4), (200.0, .5)])
+
+    def test_runtime_workflow_self_chains_instead_of_trusting_five_minute_cron(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        workflow = (root / ".github/workflows/paper-cycle.yml").read_text()
+        self.assertIn("actions: write", workflow)
+        self.assertIn("gh workflow run paper-cycle.yml", workflow)
+        self.assertIn("300 - elapsed", workflow)
+        self.assertNotIn("2,7,12,17,22,27,32,37,42,47,52,57", workflow)
 
 
 class FeatureAndAgentTests(unittest.TestCase):
@@ -74,6 +103,21 @@ class FeatureAndAgentTests(unittest.TestCase):
         not_ready = FeatureEngine(initial_history={"m1": stale}).build([market], books)["m1"]
         self.assertTrue(ready.history_ready)
         self.assertFalse(not_ready.history_ready)
+
+    def test_authoritative_backfill_unfreezes_sparse_runner_history(self) -> None:
+        market = self.make_market()
+        now = time.time()
+        sparse = [PricePoint(now - 12 * 3600, .40, 900), PricePoint(now - 6 * 3600, .42, 950)]
+        regular = [PricePoint(now - (12 - index) * 300, .43 + index * .002, 0) for index in range(12)]
+        features = FeatureEngine(initial_history={"m1": sparse})
+        self.assertEqual(features.backfill({"m1": regular}), 12)
+        self.assertEqual(features.backfill({"m1": regular}), 0)
+        vector = features.build([market], {
+            "yes": Book("yes", (Level(.45, 1000),), (Level(.46, 1000),), now),
+            "no": Book("no", (Level(.54, 1000),), (Level(.55, 1000),), now),
+        })["m1"]
+        self.assertTrue(vector.history_ready)
+        self.assertGreaterEqual(vector.observation_count, 12)
 
     def test_news_requires_two_independent_sources(self) -> None:
         now = time.time()
@@ -188,6 +232,19 @@ class BrokerAndEngineTests(unittest.TestCase):
                 self.assertEqual(decision.reason, "relative-spread gate")
             finally:
                 broker.close()
+
+    def test_selected_contract_is_not_blocked_by_opposite_book_spread(self) -> None:
+        market = replace(FeatureAndAgentTests().make_market(), fee_rate=0)
+        feature = FeatureEngine().build([market], {
+            "yes": Book("yes", (Level(.49, 2000),), (Level(.50, 2000),), time.time()),
+            "no": Book("no", (Level(.40, 2000),), (Level(.50, 2000),), time.time()),
+        })["m1"]
+        spec = replace(build_agent_specs()[0], min_liquidity=0, max_spread=.04)
+        signal = Signal(spec.id, "m1", "Yes", .60, .08, 1, .01, "taker", "test", "Yes")
+        decision = RiskManager().authorize(
+            spec, signal, feature, AgentRiskState(10_000, 10_000, 10_000)
+        )
+        self.assertTrue(decision.allowed)
 
     def test_maker_quote_only_fills_when_opposite_quote_crosses(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

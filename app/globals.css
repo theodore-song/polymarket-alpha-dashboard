@@ -38,7 +38,7 @@ main { min-height: 100vh; }
 .hero-total span, .hero-total small { display: block; color: #8e948b; font: 600 11px/1.4 var(--font-geist-mono), monospace; text-transform: uppercase; letter-spacing: .08em; }
 .hero-total strong { display: block; margin: 7px 0; font-size: clamp(35px, 4vw, 52px); letter-spacing: -.055em; }
 
-.runtime-banner { position: relative; display: grid; grid-template-columns: minmax(270px, 1.7fr) repeat(3, minmax(130px, 1fr)) auto; gap: 1px; margin: 30px clamp(16px, 5vw, 72px) 0; border: 1px solid #b9c7a8; border-radius: 15px; overflow: hidden; background: #b9c7a8; }
+.runtime-banner { position: relative; display: grid; grid-template-columns: minmax(270px, 1.7fr) repeat(4, minmax(130px, 1fr)) auto; gap: 1px; margin: 30px clamp(16px, 5vw, 72px) 0; border: 1px solid #b9c7a8; border-radius: 15px; overflow: hidden; background: #b9c7a8; }
 .runtime-banner > div { min-height: 118px; padding: 22px; background: #f8fbf2; }
 .runtime-banner > div > span, .runtime-banner > div > small { display: block; color: var(--muted); font: 650 9px/1.4 var(--font-geist-mono), monospace; text-transform: uppercase; }
 .runtime-banner > div > strong { display: block; margin: 15px 0 6px; font: 800 24px/1 var(--font-geist-mono), monospace; }

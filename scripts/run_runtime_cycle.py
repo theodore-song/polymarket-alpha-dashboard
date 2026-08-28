@@ -81,7 +81,7 @@ def main() -> int:
         "--equity-output", str(output / "equity.json"),
         "--health-output", str(health_path),
         "--epoch", "v2-edge-only",
-        "--label", "V2.2 · Adaptive news-confirmed trading",
+        "--label", "V2.3 · Self-healing continuous alpha",
     ]
     if args.skip_market_enrichment:
         command.append("--skip-market-enrichment")
@@ -96,6 +96,11 @@ def main() -> int:
             "heartbeat_fills": report.heartbeat_fills,
             "retirement_fills": report.retirement_fills,
             "news_items": report.news_items,
+            "history_points": report.history_points,
+            "history_ready_markets": report.history_ready_markets,
+            "signals_generated": report.signals_generated,
+            "risk_rejections": report.risk_rejections,
+            "risk_rejection_reasons": report.risk_rejection_reasons,
             "adaptation_resolved": report.adaptation_resolved,
             "strategies_paused": report.strategies_paused,
             "news_errors": report.news_errors,

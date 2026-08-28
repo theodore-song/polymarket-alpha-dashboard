@@ -31,7 +31,7 @@ def main() -> None:
 
     assert dashboard["meta"]["snapshot_version"] == 2
     assert dashboard["meta"]["epoch"] == "v2-edge-only"
-    assert dashboard["meta"]["strategy_version"] == "v2.2-adaptive-news"
+    assert dashboard["meta"]["strategy_version"] == "v2.3-self-healing"
     assert len(dashboard["agents"]) == 100
     assert dashboard["summary"]["agents_evaluated"] == 100
     assert health["status"] == "healthy"
@@ -44,6 +44,9 @@ def main() -> None:
     assert sum(agent["allocation_status"] == "shadow" for agent in dashboard["agents"]) == 10
     assert all(agent.get("adaptation") for agent in dashboard["agents"])
     assert int((dashboard["summary"]["latest_cycle"] or {}).get("heartbeat_fills") or 0) == 0
+    latest = dashboard["summary"]["latest_cycle"] or {}
+    assert int(latest.get("history_ready_markets") or 0) > 0
+    assert int(latest.get("signals_generated") or 0) >= int(latest.get("signals_approved") or 0)
 
     db = sqlite3.connect(runtime / "polyalpha-v2.sqlite3")
     try:
@@ -52,15 +55,18 @@ def main() -> None:
         assert db.execute("SELECT COUNT(*) FROM strategy_adaptation").fetchone()[0] == 100
         assert db.execute("SELECT COUNT(*) FROM trades").fetchone()[0] == len(trades["trades"])
         assert db.execute(
-            "SELECT COUNT(*) FROM pending_orders WHERE COALESCE(strategy_version,'') != 'v2.2-adaptive-news'"
+            "SELECT COUNT(*) FROM pending_orders WHERE COALESCE(strategy_version,'') != 'v2.3-self-healing'"
         ).fetchone()[0] == 0
         assert db.execute(
             "SELECT COALESCE(MAX(n),0) FROM (SELECT COUNT(*) n FROM market_history GROUP BY market_id)"
         ).fetchone()[0] <= 128
         cycle = db.execute(
-            "SELECT status,agents_evaluated FROM cycle_runs WHERE cycle_id=?", (cycle_id,)
+            """SELECT status,agents_evaluated,history_ready_markets,signals_generated
+               FROM cycle_runs WHERE cycle_id=?""", (cycle_id,)
         ).fetchone()
-        assert cycle == ("success", 100)
+        assert cycle[0:2] == ("success", 100)
+        assert cycle[2] > 0
+        assert cycle[3] >= 0
     finally:
         db.close()
     print(f"Runtime verification passed for cycle {cycle_id}.")

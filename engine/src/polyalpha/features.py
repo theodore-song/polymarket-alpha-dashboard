@@ -37,6 +37,25 @@ class FeatureEngine:
         self.appended = []
         return points
 
+    def backfill(self, histories: dict[str, Iterable[PricePoint]]) -> int:
+        """Merge authoritative timestamped history without duplicating restarts."""
+        added = 0
+        for market_id, incoming in histories.items():
+            existing = list(self.history[market_id])
+            by_second = {int(point.timestamp): point for point in existing}
+            existing_seconds = set(by_second)
+            for point in incoming:
+                second = int(point.timestamp)
+                by_second[second] = point
+                if second not in existing_seconds:
+                    self.appended.append((market_id, point))
+                    existing_seconds.add(second)
+                    added += 1
+            ordered = sorted(by_second.values(), key=lambda point: point.timestamp)
+            self.history[market_id].clear()
+            self.history[market_id].extend(ordered[-self.history_size :])
+        return added
+
     @staticmethod
     def _time_return(points: list[PricePoint], seconds: float) -> tuple[float, bool]:
         if len(points) < 2:
@@ -75,7 +94,10 @@ class FeatureEngine:
         output: dict[str, FeatureVector] = {}
         for market_id, (market, yes_book, no_book, mid) in usable.items():
             points_deque = self.history[market_id]
-            previous_volume = points_deque[-1].volume_24h if points_deque else market.volume_24h
+            previous_volume = next(
+                (point.volume_24h for point in reversed(points_deque) if point.volume_24h > 0),
+                market.volume_24h,
+            )
             timestamp = max(now, yes_book.timestamp or 0.0)
             point = PricePoint(timestamp, mid, market.volume_24h)
             points_deque.append(point)

@@ -11,7 +11,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from .models import Book, Market
+from .models import Book, Market, safe_float
 
 
 class APIError(RuntimeError):
@@ -153,4 +153,48 @@ class PolymarketClient:
                     book = Book.from_api(item)
                     if book.asset_id:
                         result[book.asset_id] = book
+        return result
+
+    def price_histories(
+        self,
+        token_ids: list[str],
+        *,
+        interval: str = "1h",
+        fidelity: int = 5,
+        batch_size: int = 20,
+    ) -> dict[str, list[tuple[float, float]]]:
+        """Fetch timestamped public CLOB history in documented batches.
+
+        The runtime uses this as a restart-safe clock source. Agent features no
+        longer depend on GitHub Actions having fired at every expected minute.
+        """
+        result: dict[str, list[tuple[float, float]]] = {}
+        for start in range(0, len(token_ids), min(20, max(1, batch_size))):
+            chunk = token_ids[start : start + min(20, max(1, batch_size))]
+            raw = self.http.request(
+                "POST",
+                f"{self.clob_url}/batch-prices-history",
+                {
+                    "markets": chunk,
+                    "interval": interval,
+                    "fidelity": max(1, fidelity),
+                },
+            )
+            history = raw.get("history", {}) if isinstance(raw, dict) else {}
+            if not isinstance(history, dict):
+                continue
+            for token_id in chunk:
+                points: list[tuple[float, float]] = []
+                values = history.get(token_id, [])
+                if not isinstance(values, list):
+                    continue
+                for item in values:
+                    if not isinstance(item, dict):
+                        continue
+                    timestamp = safe_float(item.get("t"))
+                    price = safe_float(item.get("p"))
+                    if timestamp > 0 and 0 < price < 1:
+                        points.append((timestamp, price))
+                if points:
+                    result[token_id] = sorted(points)[-128:]
         return result

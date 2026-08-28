@@ -62,6 +62,12 @@ def main() -> None:
     orders = rows(db, "SELECT * FROM pending_orders ORDER BY created_at DESC, id DESC")
     equity = rows(db, "SELECT * FROM equity_snapshots ORDER BY timestamp, agent_id")
     cycles = rows(db, "SELECT * FROM cycle_runs ORDER BY started_at") if table_exists(db, "cycle_runs") else []
+    for cycle in cycles:
+        raw_reasons = cycle.get("risk_rejection_reasons") or "{}"
+        try:
+            cycle["risk_rejection_reasons"] = json.loads(raw_reasons)
+        except (TypeError, json.JSONDecodeError):
+            cycle["risk_rejection_reasons"] = {}
     successful_cycles = [cycle for cycle in cycles if cycle.get("status") == "success"]
     latest_cycle = successful_cycles[-1] if successful_cycles else None
     latest_attempt = cycles[-1] if cycles else None
@@ -266,7 +272,7 @@ def main() -> None:
             "cycle_id": cycle_id,
             "epoch": args.epoch,
             "epoch_label": args.label,
-            "strategy_version": "v2.2-adaptive-news",
+            "strategy_version": "v2.3-self-healing",
             "mode": "Polymarket public-data paper trading",
             "starting_cash_per_agent": 10_000,
             "currency": "USDC",

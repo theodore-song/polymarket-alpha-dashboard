@@ -18,7 +18,7 @@ def main() -> None:
     assert hashlib.sha256(V1.read_bytes()).hexdigest() == V1_SHA256
     snapshot = json.loads(V2.read_text())
     assert snapshot["meta"]["epoch"] == "v2-edge-only"
-    assert snapshot["meta"]["strategy_version"] == "v2.2-adaptive-news"
+    assert snapshot["meta"]["strategy_version"] == "v2.3-self-healing"
     assert len(snapshot["agents"]) == 100
     assert sum(agent["allocation_status"] == "active" for agent in snapshot["agents"]) == 90
     assert sum(agent["allocation_status"] == "shadow" for agent in snapshot["agents"]) == 10
@@ -27,6 +27,7 @@ def main() -> None:
     assert all(agent["trades"] > 0 for agent in snapshot["agents"])
     assert all(agent.get("adaptation") for agent in snapshot["agents"])
     assert int((snapshot["summary"]["latest_cycle"] or {}).get("heartbeat_fills") or 0) == 0
+    assert int((snapshot["summary"]["latest_cycle"] or {}).get("history_ready_markets") or 0) > 0
     assert snapshot["summary"]["adaptation"]["warming"] == 100
     assert not any("discovery position" in trade["reason"] for trade in snapshot["trades"])
     active = snapshot["summary"]["active_book"]
@@ -34,7 +35,7 @@ def main() -> None:
     combined = snapshot["summary"]["combined"]
     assert active["agents"] + shadow["agents"] == combined["agents"] == 100
     assert abs(active["aggregate_equity"] + shadow["aggregate_equity"] - combined["aggregate_equity"]) < 1e-6
-    print("Snapshot verification passed: immutable v1, isolated books, and v2.2 adaptive controls.")
+    print("Snapshot verification passed: immutable v1, isolated books, and v2.3 self-healing controls.")
 
 
 if __name__ == "__main__":

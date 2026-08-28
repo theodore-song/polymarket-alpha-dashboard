@@ -1,16 +1,19 @@
-name: PolyAlpha five-minute paper cycle
+name: PolyAlpha continuous five-minute paper cycle
 
 on:
   schedule:
-    - cron: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"
+    # Best-effort watchdog only. Successful runs dispatch their own successor,
+    # avoiding GitHub's heavily delayed high-frequency scheduled-event queue.
+    - cron: "17 */6 * * *"
   workflow_dispatch:
   # An authenticated outside-news monitor can request an immediate cycle without
-  # waiting for the next scheduled poll. The cycle still applies every v2.2 gate.
+  # waiting for the next scheduled poll. The cycle still applies every v2.3 gate.
   repository_dispatch:
     types: [news_alert]
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: polyalpha-paper-cycle
@@ -19,13 +22,16 @@ concurrency:
 jobs:
   cycle:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
-      - uses: actions/checkout@v4
+      - name: Record the cadence anchor
+        run: echo "CHAIN_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
@@ -104,3 +110,22 @@ jobs:
       - name: Surface a failed paper cycle
         if: steps.trade.outputs.exit_code != '0'
         run: exit 1
+
+      - name: Dispatch the next five-minute cycle
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          elapsed=$(($(date +%s) - CHAIN_STARTED_AT))
+          delay=$((300 - elapsed))
+          if [ "$delay" -gt 0 ]; then
+            sleep "$delay"
+          fi
+          for attempt in 1 2 3; do
+            if gh workflow run paper-cycle.yml --ref main --repo "$GITHUB_REPOSITORY"; then
+              exit 0
+            fi
+            sleep 10
+          done
+          exit 1

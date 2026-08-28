@@ -47,7 +47,7 @@ def build_agent_specs() -> list[AgentSpec]:
                     },
                     allocation_status="shadow" if family == "crowd_bias" else "active",
                     allocation_tier="probation",
-                    strategy_version="v2.2-adaptive-news",
+                    strategy_version="v2.3-self-healing",
                 )
             )
     assert len(specs) == 100

@@ -56,7 +56,7 @@ class PaperBroker:
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, family TEXT NOT NULL,
                 allocation_status TEXT NOT NULL DEFAULT 'active',
                 allocation_tier TEXT NOT NULL DEFAULT 'probation',
-                strategy_version TEXT NOT NULL DEFAULT 'v2.2-adaptive-news',
+                strategy_version TEXT NOT NULL DEFAULT 'v2.3-self-healing',
                 horizon INTEGER NOT NULL DEFAULT 1,
                 initial_cash REAL NOT NULL, cash REAL NOT NULL,
                 equity REAL NOT NULL, high_water REAL NOT NULL,
@@ -110,6 +110,12 @@ class PaperBroker:
                 maker_fills INTEGER NOT NULL DEFAULT 0,
                 retirement_fills INTEGER NOT NULL DEFAULT 0,
                 news_items INTEGER NOT NULL DEFAULT 0,
+                history_points INTEGER NOT NULL DEFAULT 0,
+                history_ready_markets INTEGER NOT NULL DEFAULT 0,
+                signals_generated INTEGER NOT NULL DEFAULT 0,
+                signals_approved INTEGER NOT NULL DEFAULT 0,
+                risk_rejections INTEGER NOT NULL DEFAULT 0,
+                risk_rejection_reasons TEXT NOT NULL DEFAULT '{}',
                 strategies_paused INTEGER NOT NULL DEFAULT 0,
                 active_equity REAL, shadow_equity REAL, combined_equity REAL,
                 error TEXT
@@ -175,6 +181,12 @@ class PaperBroker:
             "cycle_runs": {
                 "retirement_fills": "INTEGER NOT NULL DEFAULT 0",
                 "news_items": "INTEGER NOT NULL DEFAULT 0",
+                "history_points": "INTEGER NOT NULL DEFAULT 0",
+                "history_ready_markets": "INTEGER NOT NULL DEFAULT 0",
+                "signals_generated": "INTEGER NOT NULL DEFAULT 0",
+                "signals_approved": "INTEGER NOT NULL DEFAULT 0",
+                "risk_rejections": "INTEGER NOT NULL DEFAULT 0",
+                "risk_rejection_reasons": "TEXT NOT NULL DEFAULT '{}'",
                 "strategies_paused": "INTEGER NOT NULL DEFAULT 0",
             },
         }
@@ -288,7 +300,7 @@ class PaperBroker:
                 "SELECT horizon,strategy_version FROM agents WHERE id=?", (agent_id,)
             ).fetchone()
             horizon = max(1, int(agent["horizon"] if agent else 1))
-            version = str(agent["strategy_version"] if agent else "v2.2-adaptive-news")
+            version = str(agent["strategy_version"] if agent else "v2.3-self-healing")
             self.db.execute(
                 """INSERT INTO adaptation_evaluations(
                    agent_id,market_id,token_id,outcome,entry_price,entry_fee_per_share,
@@ -304,7 +316,7 @@ class PaperBroker:
 
     def _strategy_version(self, agent_id: str) -> str:
         row = self.db.execute("SELECT strategy_version FROM agents WHERE id=?", (agent_id,)).fetchone()
-        return str(row[0]) if row and row[0] else "v2.2-adaptive-news"
+        return str(row[0]) if row and row[0] else "v2.3-self-healing"
 
     def _liquidate_market(
         self, agent_id: str, f: FeatureVector, reason: str,
@@ -693,6 +705,12 @@ class PaperBroker:
         maker_fills: int = 0,
         retirement_fills: int = 0,
         news_items: int = 0,
+        history_points: int = 0,
+        history_ready_markets: int = 0,
+        signals_generated: int = 0,
+        signals_approved: int = 0,
+        risk_rejections: int = 0,
+        risk_rejection_reasons: str = "{}",
         strategies_paused: int = 0,
         error: str | None = None,
     ) -> None:
@@ -706,13 +724,17 @@ class PaperBroker:
         self.db.execute(
             """UPDATE cycle_runs SET finished_at=?,status=?,agents_evaluated=?,
                markets_discovered=?,markets_with_books=?,alpha_fills=?,heartbeat_fills=?,
-               maker_fills=?,retirement_fills=?,news_items=?,strategies_paused=?,
+               maker_fills=?,retirement_fills=?,news_items=?,history_points=?,
+               history_ready_markets=?,signals_generated=?,signals_approved=?,
+               risk_rejections=?,risk_rejection_reasons=?,strategies_paused=?,
                active_equity=?,shadow_equity=?,combined_equity=?,error=?
                WHERE cycle_id=?""",
             (
                 time.time(), status, agents_evaluated, markets_discovered,
                 markets_with_books, alpha_fills, heartbeat_fills, maker_fills,
-                retirement_fills, news_items, strategies_paused,
+                retirement_fills, news_items, history_points, history_ready_markets,
+                signals_generated, signals_approved, risk_rejections,
+                risk_rejection_reasons, strategies_paused,
                 active, shadow, active + shadow, error, cycle_id,
             ),
         )

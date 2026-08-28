@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import time
 import uuid
+import json
+from collections import Counter
 from dataclasses import dataclass
 from typing import Protocol
 
 from .agents import StrategyAgent
 from .broker import PaperBroker
-from .features import FeatureEngine
+from .features import FeatureEngine, PricePoint
 from .models import Book, FeatureVector, Market
 from .news import NewsClient, NewsMatcher
 from .risk import RiskManager
@@ -29,6 +31,11 @@ class CycleReport:
     heartbeat_fills: int
     retirement_fills: int
     news_items: int
+    history_points: int
+    history_ready_markets: int
+    signals_generated: int
+    risk_rejections: int
+    risk_rejection_reasons: dict[str, int]
     adaptation_resolved: int
     strategies_paused: int
     news_errors: tuple[str, ...]
@@ -95,6 +102,30 @@ class TradingEngine:
                     pass
         token_ids = [token for market in markets for token in market.tokens.values()]
         books = self.source.books(token_ids)
+        history_points = 0
+        history_errors: list[str] = []
+        history_getter = getattr(self.source, "price_histories", None)
+        if history_getter is not None:
+            yes_token_to_market: dict[str, Market] = {}
+            for market in markets:
+                binary = market.binary_tokens()
+                if binary is not None:
+                    yes_token_to_market[binary[0][1]] = market
+            try:
+                raw_histories = history_getter(list(yes_token_to_market))
+                backfill = {
+                    market.id: [
+                        PricePoint(timestamp, price, 0.0)
+                        for timestamp, price in raw_histories.get(token_id, [])
+                    ]
+                    for token_id, market in yes_token_to_market.items()
+                    if raw_histories.get(token_id)
+                }
+                history_points = self.features.backfill(backfill)
+            except Exception as exc:
+                # Live books still produce a safe cycle. The next chained run can
+                # recover history without discarding the last successful ledger.
+                history_errors.append(f"price history: {type(exc).__name__}")
         news_errors: list[str] = []
         if self.news_client is not None:
             fetched_news, news_errors = self.news_client.fetch()
@@ -103,11 +134,12 @@ class TradingEngine:
         matcher = NewsMatcher(recent_news)
         news_signals = {market.id: matcher.score(market.question) for market in markets}
         feature_map = self.features.build(markets, books, news_signals)
+        history_ready_markets = sum(feature.history_ready for feature in feature_map.values())
         self.broker.append_feature_history(self.features.drain_appended())
 
-        # Quotes from the audited v2.1 execution model must not fill under v2.2.
+        # Quotes from older execution models must not fill under v2.3.
         # Crowd-bias quotes are also removed before pending-order processing.
-        self.broker.cancel_stale_pending("v2.2-adaptive-news")
+        self.broker.cancel_stale_pending("v2.3-self-healing")
         for agent in self.agents:
             if agent.spec.family == "crowd_bias":
                 self.broker.cancel_pending(agent.spec.id)
@@ -116,7 +148,7 @@ class TradingEngine:
         adaptation_resolved = self.broker.resolve_adaptation(feature_map)
         adaptations = self.broker.adaptation_states()
 
-        # v2.2 cuts audited failure modes rather than carrying them indefinitely.
+        # v2.3 keeps the v2.2 audited retirements in force.
         # All legacy activation/heartbeat inventory and every crowd-bias position
         # is liquidated at the executable bid, with history preserved permanently.
         for agent in self.agents:
@@ -136,7 +168,7 @@ class TradingEngine:
                     self.broker.retire_market(
                         agent.spec.id,
                         feature,
-                        "v2.2 audited strategy retirement",
+                        "v2.3 audited strategy retirement",
                     )
             if agent.spec.family == "crowd_bias" or (
                 adaptive is not None and adaptive.state == "paused"
@@ -146,6 +178,9 @@ class TradingEngine:
         self.broker.mark_to_market(feature_map)
         states = self.broker.all_risk_states(feature_map)
         approved = 0
+        signals_generated = 0
+        risk_rejections = 0
+        risk_rejection_reasons: Counter[str] = Counter()
 
         def aligned(outcome: str | None, held: set[str]) -> bool:
             if not outcome:
@@ -171,6 +206,7 @@ class TradingEngine:
             if agent.spec.family == "crowd_bias" or allocation_multiplier <= 0:
                 continue
             signals = {market_id: agent.decide(feature) for market_id, feature in feature_map.items()}
+            signals_generated += sum(signal.outcome is not None for signal in signals.values())
             held = self.broker.market_outcomes(agent.spec.id)
             turnover_limit = max(0.0, state.equity * self.max_turnover_fraction)
             risk_adding_turnover = 0.0
@@ -196,6 +232,8 @@ class TradingEngine:
                     agent.spec, signal, feature, state, allocation_multiplier
                 )
                 if not decision.allowed:
+                    risk_rejections += 1
+                    risk_rejection_reasons[decision.reason] += 1
                     continue
                 target = decision.target_notional
                 added = max(0.0, target - previous)
@@ -235,6 +273,8 @@ class TradingEngine:
                     agent.spec, signal, feature, state, allocation_multiplier
                 )
                 if not decision.allowed or decision.target_notional <= 0:
+                    risk_rejections += 1
+                    risk_rejection_reasons[decision.reason] += 1
                     continue
                 if risk_adding_turnover + decision.target_notional > turnover_limit:
                     continue
@@ -257,7 +297,14 @@ class TradingEngine:
             maker_fills=fill_counts["maker"],
             retirement_fills=fill_counts["retirement"],
             news_items=len(recent_news),
+            history_points=history_points,
+            history_ready_markets=history_ready_markets,
+            signals_generated=signals_generated,
+            signals_approved=approved,
+            risk_rejections=risk_rejections,
+            risk_rejection_reasons=json.dumps(dict(risk_rejection_reasons), sort_keys=True),
             strategies_paused=sum(state.state == "paused" for state in adaptations.values()),
+            error="; ".join(history_errors + news_errors)[:1000] or None,
         )
         return CycleReport(
             cycle_id,
@@ -269,8 +316,13 @@ class TradingEngine:
             fill_counts["heartbeat"],
             fill_counts["retirement"],
             len(recent_news),
+            history_points,
+            history_ready_markets,
+            signals_generated,
+            risk_rejections,
+            dict(risk_rejection_reasons),
             adaptation_resolved,
             sum(state.state == "paused" for state in adaptations.values()),
-            tuple(news_errors),
+            tuple(history_errors + news_errors),
             time.monotonic() - started,
         )

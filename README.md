@@ -4,7 +4,7 @@ Public analytics for the PolyAlpha 100-agent Polymarket paper-trading tournament
 
 - Live dashboard: https://polymarket-alpha-dashboard-five.vercel.app
 - GitHub repository: https://github.com/theodore-song/polymarket-alpha-dashboard
-- Current runtime: v2.2 evaluates all 100 agents across the full tradable Polymarket universe every five minutes, including 90 active-book agents and 10 quarantined crowd-bias shadow agents.
+- Current runtime: v2.3 evaluates all 100 agents across the full tradable Polymarket universe through a self-chained five-minute runner, including 90 active-book agents and 10 quarantined crowd-bias shadow agents.
 - Immutable archive: v1 forced-activation ledger with all 1,461 trades and 609 positions preserved for audit.
 
 The dashboard exposes:
@@ -19,13 +19,15 @@ The dashboard exposes:
 - live cycle health, cache-free polling, alpha/retirement attribution, and a downloadable SQLite audit ledger;
 - conservative multi-source public-news confirmation and forward, after-cost strategy adaptation.
 
-V2.2 disables forced activation and inactivity heartbeat trades. Temporal signals
-need valid time-spaced history, all entries must clear a round-trip cost hurdle,
+V2.3 disables forced activation and inactivity heartbeat trades. Temporal signals
+use Polymarket's own timestamped five-minute history, all entries must clear a round-trip cost hurdle,
 and a strategy's allocation is reduced or paused when its forward executable
 returns provide statistically negative evidence. News is fetched on each runner
 cycle. The workflow also accepts an authenticated `news_alert` repository dispatch
 for an immediate cycle from an outside monitor; without that optional dispatcher,
-the current GitHub-hosted runner is five-minute reactive, not sub-minute.
+the current GitHub-hosted runner is five-minute reactive, not sub-minute. Each
+successful or failed run dispatches its successor; a six-hour scheduled watchdog
+recovers the chain if a runner is externally interrupted.
 
 ## Local development
 
@@ -36,7 +38,7 @@ npm run dev
 
 ## Runtime architecture
 
-The scheduled GitHub workflow restores the durable SQLite ledger from the isolated
+The self-chained GitHub workflow restores the durable SQLite ledger from the isolated
 `runtime-state` branch, executes one public-data paper cycle, verifies it, and
 atomically replaces the live JSON datasets. Vercel serves those files through
 cache-free read-only routes; five-minute updates do not trigger deployments.

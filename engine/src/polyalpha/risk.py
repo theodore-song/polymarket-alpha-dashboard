@@ -66,8 +66,6 @@ class RiskManager:
             return RiskDecision(existing > 0, 0.0, "exit/no edge")
         if state.equity <= 0 or state.drawdown >= self.kill_drawdown:
             return RiskDecision(existing > 0, 0.0, "drawdown kill switch")
-        if feature.spread > spec.max_spread and signal.outcome != "BOTH":
-            return RiskDecision(existing > 0, 0.0, "spread gate")
         if feature.market.liquidity < spec.min_liquidity and signal.outcome != "BOTH":
             return RiskDecision(existing > 0, 0.0, "liquidity gate")
         if allocation_multiplier <= 0:
@@ -77,15 +75,18 @@ class RiskManager:
             bid, ask = book.best_bid, book.best_ask
             if bid is None or ask is None:
                 return RiskDecision(existing > 0, 0.0, "incomplete executable book")
+            selected_spread = ask - bid
+            if selected_spread > spec.max_spread:
+                return RiskDecision(existing > 0, 0.0, "selected-spread gate")
             entry_price = ask if signal.execution == "taker" else bid
             if not (self.min_contract_price <= entry_price <= self.max_contract_price):
                 return RiskDecision(existing > 0, 0.0, "extreme-price quarantine")
-            relative_spread = (ask - bid) / max(0.01, ask)
+            relative_spread = selected_spread / max(0.01, ask)
             if relative_spread > self.max_relative_spread:
                 return RiskDecision(existing > 0, 0.0, "relative-spread gate")
             entry_fee = feature.market.fee_rate * entry_price * (1.0 - entry_price) if signal.execution == "taker" else 0.0
             exit_fee = feature.market.fee_rate * bid * (1.0 - bid)
-            round_trip_cost = (ask - bid) + entry_fee + exit_fee
+            round_trip_cost = selected_spread + entry_fee + exit_fee
             required_edge = max(spec.threshold, self.min_edge_cost_ratio * round_trip_cost)
             if signal.edge < required_edge:
                 return RiskDecision(existing > 0, 0.0, "round-trip-cost gate")
