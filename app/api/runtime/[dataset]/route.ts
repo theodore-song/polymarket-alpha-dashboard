@@ -41,7 +41,7 @@ export async function GET(
 
   const upstream = await fetch(
     `https://raw.githubusercontent.com/${REPOSITORY}/${runtimeCommit}/runtime/${selected.file}`,
-    { cache: 'force-cache', headers: { Accept: selected.contentType } },
+    { cache: 'no-store', headers: { Accept: selected.contentType, 'Cache-Control': 'no-cache' } },
   );
   if (!upstream.ok) {
     return Response.json(
