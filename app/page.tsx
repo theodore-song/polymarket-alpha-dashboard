@@ -15,7 +15,7 @@ type Agent = {
   adaptation?: { samples: number; mean_return: number; lower_bound: number | null; upper_bound: number | null; allocation_multiplier: number; state: 'warming' | 'reduced' | 'probation' | 'validated' | 'paused' };
   promotion?: { eligible: boolean; resolved_positions: number; days_observed: number; categories: number; edge_lcb: number | null; brier_improvement: number | null; max_event_profit_share: number | null; checks: Record<string, boolean> };
 };
-type Trade = { id: number; timestamp: number; agent_id: string; market_id: string; token_id: string; outcome: string; side: string; shares: number; price: number; fee: number; execution: string; reason: string; net_edge?: number | null; spread?: number | null; decision_class?: string | null };
+type Trade = { id: number; timestamp: number; agent_id: string; market_id: string; token_id: string; outcome: string; side: string; shares: number; price: number; fee: number; execution: string; reason: string; net_edge?: number | null; spread?: number | null; decision_class?: string | null; strategy_version?: string | null };
 type Position = { agent_id: string; market_id: string; event_id: string; token_id: string; outcome: string; shares: number; avg_price: number };
 type Order = { id: number; agent_id: string; market_id: string; event_id: string; token_id: string; outcome: string; side: string; shares: number; limit_price: number; created_at: number; reason: string };
 type EquityPoint = { timestamp: number; agent_id: string; cash: number; equity: number };
@@ -217,6 +217,9 @@ export default function Home() {
   if (!snapshot) return <main className="loading-screen">Loading PolyAlpha ledger…</main>;
 
   const leaders = [...snapshot.agents].sort((a, b) => b.equity - a.equity);
+  const v24Fills = snapshot.trades.filter((trade) => trade.strategy_version === 'v2.4-executable-learning');
+  const positionedAgents = snapshot.agents.filter((agent) => agent.positions > 0);
+  const positionedLeaders = [...positionedAgents].sort((a, b) => b.positions - a.positions || b.trades - a.trades || b.equity - a.equity);
   const fallbackBook: BookSummary = { agents: snapshot.summary.agents, aggregate_equity: snapshot.summary.aggregate_equity, aggregate_starting_cash: snapshot.summary.aggregate_starting_cash, return_pct: 100 * (snapshot.summary.aggregate_equity / snapshot.summary.aggregate_starting_cash - 1), trades: snapshot.summary.trades, fees: snapshot.trades.reduce((sum, trade) => sum + trade.fee, 0), turnover: snapshot.trades.filter((trade) => trade.side === 'BUY' || trade.side === 'SELL').reduce((sum, trade) => sum + trade.shares * trade.price, 0), realized_pnl: 0, unrealized_pnl: snapshot.summary.aggregate_equity - snapshot.summary.aggregate_starting_cash };
   const headlineBook = snapshot.summary.active_book ?? fallbackBook;
   const aggregateReturn = headlineBook.return_pct;
@@ -246,7 +249,7 @@ export default function Home() {
     <main>
       <header className="site-header">
         <button className="brand" onClick={() => navigate('overview')} aria-label="PolyAlpha overview"><span className="brand-mark">Pα</span><span>POLYALPHA</span></button>
-        <div className="header-meta"><span className={`status-dot ${runtimeStatus}`} /> {isV2 ? `${runtimeStatus === 'healthy' ? 'Live' : 'Stale'} paper runner` : 'Archived paper ledger'}</div>
+        <div className="header-meta"><span className="release-chip">Dashboard v2.4.1</span><span className={`status-dot ${runtimeStatus}`} /> {isV2 ? `${runtimeStatus === 'healthy' ? 'Live' : 'Stale'} paper runner` : 'Archived paper ledger'}</div>
       </header>
       <nav className="site-nav" aria-label="Dashboard sections">
         {(['overview', 'portfolios', 'trades', 'positions', 'methodology'] as View[]).map((item) => <button key={item} className={view === item ? 'active' : ''} onClick={() => navigate(item)}>{item === 'positions' ? 'Positions & orders' : item}</button>)}
@@ -256,11 +259,18 @@ export default function Home() {
 
       {view === 'overview' && <>
         <section className="hero" id="top">
-          <div className="eyebrow">{snapshot.meta.epoch_label ?? '100-agent prediction-market tournament'}</div>
+          <div className="eyebrow">LIVE DEPLOYMENT · V2.4 EXECUTABLE LEARNING</div>
           <h1>Every agent.<br />Every position.<br /><em>Nothing hidden.</em></h1>
           <p className="hero-copy">A transparent view into 100 Polymarket research portfolios. Every hypothesis is converted into one executable, after-cost edge; trades use real displayed depth, and both accepted and rejected ideas feed forward strategy selection.</p>
           <div className="hero-total"><span>{snapshot.summary.active_book ? 'Active alpha-book equity' : 'Aggregate paper equity'}</span><strong>{money0.format(headlineBook.aggregate_equity)}</strong><small><ReturnValue value={aggregateReturn} /> from {money0.format(headlineBook.aggregate_starting_cash)} starting paper capital</small></div>
         </section>
+        {isV2 && <section className="release-proof" aria-label="Visible v2.4 deployment proof">
+          <div className="release-proof-title"><span>What changed on this deployment</span><strong>V2.4 IS LIVE</strong><small>These values come from the current public ledger—not placeholder copy.</small></div>
+          <div><span>New-engine fills</span><strong>{v24Fills.length}</strong><small>Trades explicitly tagged v2.4</small></div>
+          <div><span>Learning outcomes</span><strong>{snapshot.summary.adaptation?.evaluations ?? 0}</strong><small>{snapshot.summary.adaptation?.pending ?? 0} more pending</small></div>
+          <div><span>Strategies cut</span><strong>{(snapshot.summary.adaptation?.reduced ?? 0) + (snapshot.summary.adaptation?.paused ?? 0)}</strong><small>Reduced or paused from evidence</small></div>
+          <div><span>Capital at work</span><strong>{positionedAgents.length}</strong><small>Agents with open positions now</small></div>
+        </section>}
         {isV2 && <section className={`runtime-banner ${runtimeStatus}`} aria-label="Autonomous runner status">
           <div className="runtime-primary"><span className="eyebrow">Self-chained five-minute runner</span><strong>{economicStatus}</strong><small>Last success {formatAge(dataAge)} · cycle {snapshot.meta.cycle_id ?? 'awaiting live state'}</small></div>
           <div><span>Agents evaluated</span><strong>{liveCycle?.agents_evaluated ?? snapshot.summary.agents_evaluated ?? 0}/100</strong></div>
@@ -294,8 +304,8 @@ export default function Home() {
           <div className="family-grid">{familyMetrics.map((item) => <article className="family-card" key={item.family}><span className="family-index" style={{ background: item.color }} /><div><h3>{familyLabel(item.family)}</h3><span>{item.active}/10 active agents</span></div><strong><ReturnValue value={item.return_pct} /></strong><small>{item.trades.toLocaleString()} trades</small></article>)}</div>
         </section>
         <section className="panel">
-          <div className="section-heading"><div><span className="eyebrow">Portfolio leaderboard</span><h2>Current liquidation value</h2></div><button className="outline-button" onClick={() => navigate('portfolios')}>Analyze all 100 →</button></div>
-          <PortfolioTable agents={leaders.slice(0, 12)} select={setSelectedAgent} />
+          <div className="section-heading"><div><span className="eyebrow">Live portfolio activity</span><h2>{positionedAgents.length ? 'Agents with capital at work' : 'Current liquidation value'}</h2></div><button className="outline-button" onClick={() => navigate('portfolios')}>Analyze all 100 →</button></div>
+          <PortfolioTable agents={(positionedAgents.length ? positionedLeaders : leaders).slice(0, 12)} select={setSelectedAgent} />
         </section>
       </>}
 

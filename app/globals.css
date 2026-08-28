@@ -21,7 +21,8 @@ button, input, select { font: inherit; }
 .site-header { height: 74px; display: flex; align-items: center; justify-content: space-between; padding: 0 clamp(20px, 5vw, 72px); border-bottom: 1px solid var(--line); }
 .brand { display: flex; align-items: center; gap: 12px; font-weight: 850; letter-spacing: -.03em; }
 .brand-mark { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 10px; background: var(--ink); color: var(--lime); font: 700 15px/1 var(--font-geist-mono), monospace; }
-.header-meta { font: 600 12px/1 var(--font-geist-mono), monospace; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.header-meta { display: flex; align-items: center; gap: 14px; font: 600 12px/1 var(--font-geist-mono), monospace; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.release-chip { padding: 7px 9px; border-radius: 999px; background: var(--ink); color: var(--lime); font-size: 9px; }
 .status-dot { display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: #63b641; box-shadow: 0 0 0 4px #63b64122; }
 .status-dot.stale { background: #d89a34; box-shadow: 0 0 0 4px #d89a3422; }
 .status-dot.degraded { background: var(--red); box-shadow: 0 0 0 4px #bd3d2a22; }
@@ -39,6 +40,13 @@ main { min-height: 100vh; }
 .hero-total strong { display: block; margin: 7px 0; font-size: clamp(35px, 4vw, 52px); letter-spacing: -.055em; }
 
 .runtime-banner { position: relative; display: grid; grid-template-columns: minmax(270px, 1.7fr) repeat(4, minmax(130px, 1fr)) auto; gap: 1px; margin: 30px clamp(16px, 5vw, 72px) 0; border: 1px solid #b9c7a8; border-radius: 15px; overflow: hidden; background: #b9c7a8; }
+.release-proof { display: grid; grid-template-columns: minmax(270px, 1.6fr) repeat(4, minmax(120px, 1fr)); gap: 1px; margin: 30px clamp(16px, 5vw, 72px) 0; border: 2px solid var(--ink); border-radius: 15px; overflow: hidden; background: var(--ink); }
+.release-proof > div { min-height: 124px; padding: 22px; background: var(--lime); }
+.release-proof > div:not(.release-proof-title) { background: var(--card); }
+.release-proof span, .release-proof small { display: block; color: var(--muted); font: 650 9px/1.45 var(--font-geist-mono), monospace; text-transform: uppercase; }
+.release-proof strong { display: block; margin: 14px 0 7px; font: 850 29px/1 var(--font-geist-mono), monospace; }
+.release-proof-title span, .release-proof-title small { color: #304314; }
+.release-proof-title strong { font-size: 32px; letter-spacing: -.04em; }
 .runtime-banner > div { min-height: 118px; padding: 22px; background: #f8fbf2; }
 .runtime-banner > div > span, .runtime-banner > div > small { display: block; color: var(--muted); font: 650 9px/1.4 var(--font-geist-mono), monospace; text-transform: uppercase; }
 .runtime-banner > div > strong { display: block; margin: 15px 0 6px; font: 800 24px/1 var(--font-geist-mono), monospace; }
@@ -85,6 +93,8 @@ tbody tr:hover { background: #f2f7e8; }
   .stat-card:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
   .section-heading { display: block; }
   .snapshot-time { display: block; margin-top: 12px; text-align: left; }
+  .release-proof { grid-template-columns: repeat(2, 1fr); }
+  .release-proof-title { grid-column: 1 / -1; }
 }
 
 .brand { border: 0; background: transparent; cursor: pointer; font: inherit; }
