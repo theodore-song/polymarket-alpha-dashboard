@@ -121,6 +121,7 @@ tbody tr:hover { background: #f2f7e8; }
 .adaptation-state.reduced { background: #f6e4b9; color: #765514; }
 .adaptation-state.paused { background: #f7e1da; color: #8a3e2f; }
 .adaptation-state.probation { background: #dce7f7; color: #315d8a; }
+.learning-note { margin: -4px 0 16px; color: var(--muted); font: 650 10px/1.5 var(--font-geist-mono), monospace; text-transform: uppercase; letter-spacing: .04em; }
 
 .section-note { max-width: 470px; margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
 .family-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--card); }

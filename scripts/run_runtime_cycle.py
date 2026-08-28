@@ -81,7 +81,7 @@ def main() -> int:
         "--equity-output", str(output / "equity.json"),
         "--health-output", str(health_path),
         "--epoch", "v2-edge-only",
-        "--label", "V2.3 · Self-healing continuous alpha",
+        "--label", "V2.4 · Executable adaptive alpha",
     ]
     if args.skip_market_enrichment:
         command.append("--skip-market-enrichment")
@@ -99,10 +99,14 @@ def main() -> int:
             "history_points": report.history_points,
             "history_ready_markets": report.history_ready_markets,
             "signals_generated": report.signals_generated,
+            "executable_signals": report.executable_signals,
             "risk_rejections": report.risk_rejections,
             "risk_rejection_reasons": report.risk_rejection_reasons,
+            "counterfactuals_recorded": report.counterfactuals_recorded,
             "adaptation_resolved": report.adaptation_resolved,
             "strategies_paused": report.strategies_paused,
+            "news_confirmed_markets": report.news_confirmed_markets,
+            "news_signal_overlays": report.news_signal_overlays,
             "news_errors": report.news_errors,
             "elapsed_seconds": report.elapsed_seconds,
         })

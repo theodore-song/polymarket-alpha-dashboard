@@ -246,6 +246,35 @@ class BrokerAndEngineTests(unittest.TestCase):
         )
         self.assertTrue(decision.allowed)
 
+    def test_canonical_net_edge_is_not_charged_twice(self) -> None:
+        market = replace(FeatureAndAgentTests().make_market(), fee_rate=.04)
+        feature = FeatureEngine().build([market], {
+            "yes": Book("yes", (Level(.49, 2000),), (Level(.50, 2000),), time.time()),
+            "no": Book("no", (Level(.49, 2000),), (Level(.50, 2000),), time.time()),
+        })["m1"]
+        spec = replace(build_agent_specs()[0], threshold=.002, min_liquidity=0)
+        signal = Signal(spec.id, "m1", "Yes", .54, .003, .2, .005,
+                        "taker", "fully after-cost test", "Yes", .03, .52)
+        decision = RiskManager().authorize(
+            spec, signal, feature, AgentRiskState(10_000, 10_000, 10_000)
+        )
+        self.assertTrue(decision.allowed)
+
+    def test_displayed_depth_caps_size_instead_of_vetoing_trade(self) -> None:
+        market = replace(FeatureAndAgentTests().make_market(), fee_rate=0)
+        feature = FeatureEngine().build([market], {
+            "yes": Book("yes", (Level(.49, 1000),), (Level(.50, 100),), time.time()),
+            "no": Book("no", (Level(.49, 1000),), (Level(.50, 1000),), time.time()),
+        })["m1"]
+        spec = replace(build_agent_specs()[0], threshold=.002, min_liquidity=0)
+        signal = Signal(spec.id, "m1", "Yes", .60, .05, 1, .0125,
+                        "taker", "depth-sized", "Yes")
+        decision = RiskManager().authorize(
+            spec, signal, feature, AgentRiskState(10_000, 10_000, 10_000)
+        )
+        self.assertTrue(decision.allowed)
+        self.assertAlmostEqual(decision.target_notional, 5.0)
+
     def test_maker_quote_only_fills_when_opposite_quote_crosses(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             broker = PaperBroker(Path(tmp) / "paper.sqlite3")
@@ -297,6 +326,37 @@ class BrokerAndEngineTests(unittest.TestCase):
             self.assertEqual(state.state, "paused")
             self.assertEqual(state.allocation_multiplier, 0)
             self.assertLess(state.upper_bound or 0, 0)
+            broker.close()
+
+    def test_rejected_signal_creates_and_resolves_counterfactual_learning(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            broker = PaperBroker(Path(tmp) / "paper.sqlite3")
+            spec = replace(build_agent_specs()[0], horizon=1)
+            broker.register_agents([spec])
+            market = replace(FeatureAndAgentTests().make_market(), fee_rate=0)
+            feature = FeatureEngine().build([market], {
+                "yes": Book("yes", (Level(.49, 1000),), (Level(.50, 1000),), time.time()),
+                "no": Book("no", (Level(.49, 1000),), (Level(.50, 1000),), time.time()),
+            })["m1"]
+            signal = Signal(spec.id, "m1", None, .60, 0, 0, 0,
+                            "taker", "below threshold", "Yes")
+            self.assertTrue(broker.record_counterfactual(signal, feature, "below threshold"))
+            self.assertFalse(broker.record_counterfactual(signal, feature, "duplicate"))
+            broker.db.execute("UPDATE adaptation_evaluations SET due_at=?", (time.time() - 1,))
+            broker.db.commit()
+            future = FeatureEngine().build([market], {
+                "yes": Book("yes", (Level(.55, 1000),), (Level(.56, 1000),), time.time()),
+                "no": Book("no", (Level(.44, 1000),), (Level(.45, 1000),), time.time()),
+            })["m1"]
+            self.assertEqual(broker.resolve_adaptation({"m1": future}), 1)
+            state = broker.adaptation_states()[spec.id]
+            self.assertEqual(state.samples, 1)
+            self.assertGreater(state.mean_return, 0)
+            row = broker.db.execute(
+                "SELECT evaluation_class,resolved_at FROM adaptation_evaluations"
+            ).fetchone()
+            self.assertEqual(row["evaluation_class"], "counterfactual-taker")
+            self.assertIsNotNone(row["resolved_at"])
             broker.close()
 
     def test_feature_history_survives_restart_and_is_bounded(self) -> None:

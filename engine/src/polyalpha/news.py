@@ -41,6 +41,11 @@ NEGATIVE_TERMS = {
     "withdraws", "withdrawn",
 }
 
+DEFAULT_SEARCH_QUERIES = (
+    "(election OR president OR congress OR court OR inflation OR Federal Reserve OR bitcoin OR crypto) when:12h",
+    "(war OR ceasefire OR technology OR IPO OR sports OR championship) when:12h",
+)
+
 
 def tokens(text: str) -> set[str]:
     return {
@@ -84,7 +89,7 @@ class NewsSignal:
 
     @property
     def confirmed(self) -> bool:
-        return self.sources >= 2 and self.relevance >= 0.30 and abs(self.direction) >= 0.20
+        return self.sources >= 2 and self.relevance >= 0.20 and abs(self.direction) >= 0.20
 
 
 class NewsClient:
@@ -136,12 +141,26 @@ class NewsClient:
             published = self._text(node, ("pubdate", "published", "updated", "date"))
             if not title:
                 continue
-            digest = hashlib.sha256(f"{feed_title}|{title}|{link}".encode()).hexdigest()
+            item_source = self._text(node, ("source",)) or feed_title
+            if urllib.parse.urlparse(url).netloc == "news.google.com" and " - " in title:
+                title, publisher = title.rsplit(" - ", 1)
+                if publisher.strip():
+                    item_source = publisher.strip()
+            digest = hashlib.sha256(f"{item_source}|{title}|{link}".encode()).hexdigest()
             output.append(
-                NewsItem(digest, feed_title[:120], title[:500], link[:1000],
+                NewsItem(digest, item_source[:120], title[:500], link[:1000],
                          parse_timestamp(published, fetched_at), fetched_at)
             )
         return output
+
+    def _fetch_search(self, query: str) -> list[NewsItem]:
+        url = "https://news.google.com/rss/search?" + urllib.parse.urlencode({
+            "q": query,
+            "hl": "en-US",
+            "gl": "US",
+            "ceid": "US:en",
+        })
+        return self._fetch_feed(url)
 
     def fetch(self) -> tuple[list[NewsItem], list[str]]:
         items: dict[str, NewsItem] = {}
@@ -152,6 +171,12 @@ class NewsClient:
                     items[item.id] = item
             except Exception as exc:
                 errors.append(f"{url}: {type(exc).__name__}")
+        for query in DEFAULT_SEARCH_QUERIES:
+            try:
+                for item in self._fetch_search(query):
+                    items[item.id] = item
+            except Exception as exc:
+                errors.append(f"news search: {type(exc).__name__}")
         return list(items.values()), errors
 
 

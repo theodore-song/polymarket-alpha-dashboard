@@ -31,7 +31,7 @@ def main() -> None:
 
     assert dashboard["meta"]["snapshot_version"] == 2
     assert dashboard["meta"]["epoch"] == "v2-edge-only"
-    assert dashboard["meta"]["strategy_version"] == "v2.3-self-healing"
+    assert dashboard["meta"]["strategy_version"] == "v2.4-executable-learning"
     assert len(dashboard["agents"]) == 100
     assert dashboard["summary"]["agents_evaluated"] == 100
     assert health["status"] == "healthy"
@@ -47,15 +47,20 @@ def main() -> None:
     latest = dashboard["summary"]["latest_cycle"] or {}
     assert int(latest.get("history_ready_markets") or 0) > 0
     assert int(latest.get("signals_generated") or 0) >= int(latest.get("signals_approved") or 0)
+    assert int(latest.get("signals_generated") or 0) >= int(latest.get("executable_signals") or 0)
+    assert int(latest.get("counterfactuals_recorded") or 0) >= 0
 
     db = sqlite3.connect(runtime / "polyalpha-v2.sqlite3")
     try:
         assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert db.execute("SELECT COUNT(*) FROM agents").fetchone()[0] == 100
         assert db.execute("SELECT COUNT(*) FROM strategy_adaptation").fetchone()[0] == 100
+        assert db.execute("SELECT COUNT(*) FROM adaptation_evaluations").fetchone()[0] >= int(
+            latest.get("counterfactuals_recorded") or 0
+        )
         assert db.execute("SELECT COUNT(*) FROM trades").fetchone()[0] == len(trades["trades"])
         assert db.execute(
-            "SELECT COUNT(*) FROM pending_orders WHERE COALESCE(strategy_version,'') != 'v2.3-self-healing'"
+            "SELECT COUNT(*) FROM pending_orders WHERE COALESCE(strategy_version,'') != 'v2.4-executable-learning'"
         ).fetchone()[0] == 0
         assert db.execute(
             "SELECT COALESCE(MAX(n),0) FROM (SELECT COUNT(*) n FROM market_history GROUP BY market_id)"

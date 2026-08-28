@@ -4,7 +4,7 @@ Public analytics for the PolyAlpha 100-agent Polymarket paper-trading tournament
 
 - Live dashboard: https://polymarket-alpha-dashboard-five.vercel.app
 - GitHub repository: https://github.com/theodore-song/polymarket-alpha-dashboard
-- Current runtime: v2.3 evaluates all 100 agents across the full tradable Polymarket universe through a self-chained five-minute runner, including 90 active-book agents and 10 quarantined crowd-bias shadow agents.
+- Current runtime: v2.4 evaluates all 100 agents across the full tradable Polymarket universe through a self-chained five-minute runner, including 90 active-book agents and 10 quarantined crowd-bias shadow agents.
 - Immutable archive: v1 forced-activation ledger with all 1,461 trades and 609 positions preserved for audit.
 
 The dashboard exposes:
@@ -19,11 +19,14 @@ The dashboard exposes:
 - live cycle health, cache-free polling, alpha/retirement attribution, and a downloadable SQLite audit ledger;
 - conservative multi-source public-news confirmation and forward, after-cost strategy adaptation.
 
-V2.3 disables forced activation and inactivity heartbeat trades. Temporal signals
-use Polymarket's own timestamped five-minute history, all entries must clear a round-trip cost hurdle,
-and a strategy's allocation is reduced or paused when its forward executable
-returns provide statistically negative evidence. News is fetched on each runner
-cycle. The workflow also accepts an authenticated `news_alert` repository dispatch
+V2.4 disables forced activation and inactivity heartbeat trades. Temporal signals
+use Polymarket's own timestamped five-minute history. Each hypothesis is converted
+to one canonical executable edge after the modeled entry, exit, spread, and fee
+costs; displayed liquidity caps position size. Every executed entry and each
+agent's best rejected idea are scored counterfactually, so a strategy's allocation
+is reduced or paused when forward executable returns provide statistically
+negative evidence. Multi-publisher news is fetched on each runner cycle. The
+workflow also accepts an authenticated `news_alert` repository dispatch
 for an immediate cycle from an outside monitor; without that optional dispatcher,
 the current GitHub-hosted runner is five-minute reactive, not sub-minute. Each
 successful or failed run dispatches its successor; a six-hour scheduled watchdog

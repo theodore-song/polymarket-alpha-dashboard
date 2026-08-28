@@ -61,7 +61,7 @@ That allocation is further reduced linearly with drawdown. The hard controls are
 - liquidation-value marking at bids;
 - official 0/1 resolution settlement.
 
-Validated alpha signals target 0.50%–1.25% of equity and use a 0.15× Kelly multiplier; probation agents are capped at 0.50%. After 24 hours without an executed BUY or SELL, an agent may place one 0.05% heartbeat only while it retains at least 90% cash, drawdown below 6%, gross exposure below 10%, heartbeat exposure below 0.5%, and a liquid contract with no more than 3% relative spread. Heartbeats are explicitly labeled and excluded from claims of edge. Alpha entries are ranked, limited to three per cycle, and risk-adding turnover is capped at 10% of equity per cycle.
+Validated alpha signals target 0.50%–1.25% of equity and use a 0.15× Kelly multiplier; probation agents are capped at 0.50%. Forced activation and inactivity heartbeat trades are disabled. Alpha entries are ranked by one canonical executable edge after the modeled entry, exit, spread, and fee costs, limited to three per cycle, and risk-adding turnover is capped at 10% of equity per cycle. Displayed liquidity caps size rather than creating a second all-or-nothing edge gate.
 
 ## How agents should be promoted
 
@@ -90,7 +90,8 @@ The leaderboard is an observation tool, not an automatic capital allocator. Auto
 - Added conservative maker-order aging and fill-through rules.
 - Kept a separate virtual balance sheet for each agent in a durable SQLite ledger.
 - Added fractional-Kelly and concentration limits, drawdown throttling, and a kill switch.
-- Replaced recurring forced activity with a reserve-gated 24-hour heartbeat while preserving strict separation between activity and alpha.
+- Removed recurring forced activity and heartbeat trades; agents remain flat when no canonical executable edge exists.
+- Added counterfactual scoring for each active agent's strongest rejected idea, alongside executed-trade scoring, so adaptive allocation receives evidence even in quiet books.
 - Added edge ranking, entry/exit hysteresis, a re-entry cooldown, turnover controls, and decision-time audit fields.
 - Quarantined crowd-bias agents in a separately reported shadow book until they satisfy the forward promotion gate.
 - Marked at executable liquidation bids and settled from official outcomes.

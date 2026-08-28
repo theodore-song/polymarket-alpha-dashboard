@@ -58,7 +58,7 @@ class StrategyAgent:
         """Use independent headlines only when the live book confirms direction."""
         if (
             f.news_sources < 2
-            or f.news_relevance < 0.30
+            or f.news_relevance < 0.20
             or abs(f.news_direction) < 0.20
         ):
             return 0.0, ""
@@ -77,6 +77,37 @@ class StrategyAgent:
     @staticmethod
     def _fee_per_share(price: float, fee_rate: float) -> float:
         return fee_rate * price * (1.0 - price)
+
+    def _executable_edge(
+        self,
+        f: FeatureVector,
+        estimated_yes: float,
+        outcome: str,
+    ) -> tuple[float, float, float | None]:
+        """Return one canonical edge after every modeled entry/exit cost.
+
+        The previous engine subtracted entry costs in the signal and then
+        charged the spread and entry fee again in risk.  This method produces
+        the only edge used by both signal selection and risk sizing.
+        """
+        book = f.yes_book if outcome.lower() == "yes" else f.no_book
+        if book.best_bid is None or book.best_ask is None:
+            return 0.0, 1.0, None
+        fair = estimated_yes if outcome.lower() == "yes" else 1.0 - estimated_yes
+        half_spread = 0.5 * max(0.0, book.best_ask - book.best_bid)
+        expected_exit = clamp(fair - half_spread, 0.001, 0.999)
+        exit_fee = self._fee_per_share(expected_exit, f.market.fee_rate)
+        if self.spec.execution == "maker":
+            entry_price = book.best_bid
+            # A resting quote earns the spread only if it fills.  A tick-sized
+            # adverse-selection reserve prevents a best-bid quote from being
+            # treated as free alpha.
+            adverse_selection = max(f.market.tick_size, 0.10 * (book.best_ask - book.best_bid))
+            total_cost = exit_fee + adverse_selection
+        else:
+            entry_price = book.best_ask
+            total_cost = self._fee_per_share(entry_price, f.market.fee_rate) + exit_fee
+        return expected_exit - entry_price - total_cost, total_cost, expected_exit
 
     def decide(self, f: FeatureVector) -> Signal:
         if self.spec.family == "crowd_bias":
@@ -100,6 +131,8 @@ class StrategyAgent:
                 "taker",
                 "complete-set ask dislocation" if outcome else "no executable complete-set edge",
                 "BOTH",
+                fee,
+                1.0,
             )
 
         news_adjustment, news_reason = self._news_adjustment(f)
@@ -114,7 +147,7 @@ class StrategyAgent:
                 f"warming history ({f.observation_count}/12 time-consistent observations)",
                 None,
             )
-        if self.spec.family == "liquidity_maker" and f.news_relevance >= 0.30:
+        if self.spec.family == "liquidity_maker" and f.news_relevance >= 0.20:
             return Signal(
                 self.spec.id, f.market.id, None, f.mid_yes, 0.0, 0.0, 0.0,
                 self.spec.execution, "news-risk maker pause", None,
@@ -125,22 +158,16 @@ class StrategyAgent:
             estimated += news_adjustment
             reason = f"{reason}; {news_reason}"
         estimated = clamp(estimated, 0.005, 0.995)
-        if self.spec.execution == "maker":
-            yes_cost = f.yes_book.best_bid or 1.0
-            no_cost = f.no_book.best_bid or 1.0
-            yes_edge = estimated - yes_cost
-            no_edge = (1.0 - estimated) - no_cost
-        else:
-            yes_cost = f.yes_book.best_ask or 1.0
-            no_cost = f.no_book.best_ask or 1.0
-            yes_edge = estimated - yes_cost - self._fee_per_share(yes_cost, f.market.fee_rate)
-            no_edge = (1.0 - estimated) - no_cost - self._fee_per_share(no_cost, f.market.fee_rate)
+        yes_edge, yes_cost, yes_exit = self._executable_edge(f, estimated, "Yes")
+        no_edge, no_cost, no_exit = self._executable_edge(f, estimated, "No")
         edge = max(yes_edge, no_edge)
         preferred_outcome = "Yes" if yes_edge >= no_edge else "No"
+        modeled_cost = yes_cost if preferred_outcome == "Yes" else no_cost
+        expected_exit = yes_exit if preferred_outcome == "Yes" else no_exit
         outcome = preferred_outcome
         if edge < self.spec.threshold:
             outcome = None
-        confidence = clamp((edge - self.spec.threshold) / 0.08, 0.0, 1.0) if outcome else 0.0
+        confidence = clamp((edge - self.spec.threshold) / 0.04, 0.0, 1.0) if outcome else 0.0
         return Signal(
             agent_id=self.spec.id,
             market_id=f.market.id,
@@ -152,6 +179,8 @@ class StrategyAgent:
             execution=self.spec.execution,
             reason=reason,
             preferred_outcome=preferred_outcome,
+            round_trip_cost=modeled_cost,
+            expected_exit_price=expected_exit,
         )
 
 def build_agents(specs: list[AgentSpec]) -> list[StrategyAgent]:

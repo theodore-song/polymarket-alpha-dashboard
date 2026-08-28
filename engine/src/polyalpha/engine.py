@@ -31,11 +31,15 @@ class CycleReport:
     heartbeat_fills: int
     retirement_fills: int
     news_items: int
+    news_confirmed_markets: int
+    news_signal_overlays: int
     history_points: int
     history_ready_markets: int
     signals_generated: int
+    executable_signals: int
     risk_rejections: int
     risk_rejection_reasons: dict[str, int]
+    counterfactuals_recorded: int
     adaptation_resolved: int
     strategies_paused: int
     news_errors: tuple[str, ...]
@@ -133,13 +137,14 @@ class TradingEngine:
         recent_news = self.broker.recent_news()
         matcher = NewsMatcher(recent_news)
         news_signals = {market.id: matcher.score(market.question) for market in markets}
+        news_confirmed_markets = sum(signal.confirmed for signal in news_signals.values())
         feature_map = self.features.build(markets, books, news_signals)
         history_ready_markets = sum(feature.history_ready for feature in feature_map.values())
         self.broker.append_feature_history(self.features.drain_appended())
 
-        # Quotes from older execution models must not fill under v2.3.
+        # Quotes from older execution models must not fill under v2.4.
         # Crowd-bias quotes are also removed before pending-order processing.
-        self.broker.cancel_stale_pending("v2.3-self-healing")
+        self.broker.cancel_stale_pending("v2.4-executable-learning")
         for agent in self.agents:
             if agent.spec.family == "crowd_bias":
                 self.broker.cancel_pending(agent.spec.id)
@@ -148,7 +153,7 @@ class TradingEngine:
         adaptation_resolved = self.broker.resolve_adaptation(feature_map)
         adaptations = self.broker.adaptation_states()
 
-        # v2.3 keeps the v2.2 audited retirements in force.
+        # v2.4 keeps the v2.2 audited retirements in force.
         # All legacy activation/heartbeat inventory and every crowd-bias position
         # is liquidated at the executable bid, with history preserved permanently.
         for agent in self.agents:
@@ -168,7 +173,7 @@ class TradingEngine:
                     self.broker.retire_market(
                         agent.spec.id,
                         feature,
-                        "v2.3 audited strategy retirement",
+                        "v2.4 audited strategy retirement",
                     )
             if agent.spec.family == "crowd_bias" or (
                 adaptive is not None and adaptive.state == "paused"
@@ -179,8 +184,11 @@ class TradingEngine:
         states = self.broker.all_risk_states(feature_map)
         approved = 0
         signals_generated = 0
+        executable_signals = 0
         risk_rejections = 0
         risk_rejection_reasons: Counter[str] = Counter()
+        counterfactuals_recorded = 0
+        news_signal_overlays = 0
 
         def aligned(outcome: str | None, held: set[str]) -> bool:
             if not outcome:
@@ -207,6 +215,8 @@ class TradingEngine:
                 continue
             signals = {market_id: agent.decide(feature) for market_id, feature in feature_map.items()}
             signals_generated += sum(signal.outcome is not None for signal in signals.values())
+            news_signal_overlays += sum("external-news overlay" in signal.reason for signal in signals.values())
+            decision_reasons: dict[str, str] = {}
             held = self.broker.market_outcomes(agent.spec.id)
             turnover_limit = max(0.0, state.equity * self.max_turnover_fraction)
             risk_adding_turnover = 0.0
@@ -231,11 +241,13 @@ class TradingEngine:
                 decision = self.risk.authorize(
                     agent.spec, signal, feature, state, allocation_multiplier
                 )
+                decision_reasons[market_id] = decision.reason
                 if not decision.allowed:
                     risk_rejections += 1
                     risk_rejection_reasons[decision.reason] += 1
                     continue
                 target = decision.target_notional
+                executable_signals += int(target > 0)
                 added = max(0.0, target - previous)
                 if added > 0 and risk_adding_turnover + added > turnover_limit:
                     continue
@@ -272,10 +284,12 @@ class TradingEngine:
                 decision = self.risk.authorize(
                     agent.spec, signal, feature, state, allocation_multiplier
                 )
+                decision_reasons[feature.market.id] = decision.reason
                 if not decision.allowed or decision.target_notional <= 0:
                     risk_rejections += 1
                     risk_rejection_reasons[decision.reason] += 1
                     continue
+                executable_signals += 1
                 if risk_adding_turnover + decision.target_notional > turnover_limit:
                     continue
                 self.broker.rebalance(signal, feature, decision.target_notional, "alpha")
@@ -283,6 +297,25 @@ class TradingEngine:
                 opened += 1
                 risk_adding_turnover += decision.target_notional
                 apply_state(state, feature, decision.target_notional)
+
+            # One unresolved forward sample per agent is enough to make the
+            # allocator learn continuously without pretending rejected ideas
+            # were fills.  The broker uses conservative taker entry/exit marks.
+            counterfactual_pool = [
+                (abs(signal.estimated_yes_probability - feature_map[market_id].mid_yes) + signal.edge,
+                 feature_map[market_id], signal)
+                for market_id, signal in signals.items()
+                if signal.preferred_outcome is not None
+            ]
+            if counterfactual_pool:
+                _, feature, signal = max(counterfactual_pool, key=lambda item: item[0])
+                reason = decision_reasons.get(
+                    feature.market.id,
+                    "below canonical net-edge threshold" if signal.outcome is None else "not selected",
+                )
+                counterfactuals_recorded += int(
+                    self.broker.record_counterfactual(signal, feature, reason)
+                )
 
         self.broker.mark_to_market(feature_map, record_snapshot=True)
         fill_counts = self.broker.fill_counts_since(starting_trade_id)
@@ -297,12 +330,17 @@ class TradingEngine:
             maker_fills=fill_counts["maker"],
             retirement_fills=fill_counts["retirement"],
             news_items=len(recent_news),
+            news_confirmed_markets=news_confirmed_markets,
+            news_signal_overlays=news_signal_overlays,
             history_points=history_points,
             history_ready_markets=history_ready_markets,
             signals_generated=signals_generated,
+            executable_signals=executable_signals,
             signals_approved=approved,
             risk_rejections=risk_rejections,
             risk_rejection_reasons=json.dumps(dict(risk_rejection_reasons), sort_keys=True),
+            counterfactuals_recorded=counterfactuals_recorded,
+            adaptation_resolved=adaptation_resolved,
             strategies_paused=sum(state.state == "paused" for state in adaptations.values()),
             error="; ".join(history_errors + news_errors)[:1000] or None,
         )
@@ -316,11 +354,15 @@ class TradingEngine:
             fill_counts["heartbeat"],
             fill_counts["retirement"],
             len(recent_news),
+            news_confirmed_markets,
+            news_signal_overlays,
             history_points,
             history_ready_markets,
             signals_generated,
+            executable_signals,
             risk_rejections,
             dict(risk_rejection_reasons),
+            counterfactuals_recorded,
             adaptation_resolved,
             sum(state.state == "paused" for state in adaptations.values()),
             tuple(history_errors + news_errors),

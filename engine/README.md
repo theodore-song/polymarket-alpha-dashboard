@@ -8,7 +8,7 @@ It cannot place a live order: the public client exposes only market discovery, m
 
 - Exactly 100 reproducible agents: ten alpha families × ten parameter variants.
 - Five-minute restart-safe cycles with the last 128 observations persisted per market.
-- A 0.05% inactivity heartbeat after 24 hours, permitted only with at least 90% cash, drawdown below 6%, tight spread, deep liquidity, and strict exposure caps.
+- No forced activation or inactivity heartbeat. An agent stays flat when no executable after-cost edge exists.
 - Edge-only alpha allocations require executable edge and the full strategy threshold.
 - Ninety active-book agents and ten crowd-bias shadow agents, all tracked separately in the same audit ledger.
 - Full active-event traversal via Gamma pagination, flattened to every nested market; new markets join automatically.
@@ -71,7 +71,7 @@ The strategy is not to pick one clever rule in advance. It is to run a diversifi
 
 1. **Measure executable edge.** Compare a probability estimate to the actual ask/bid and current fee curve, never merely to a displayed midpoint.
 2. **Exploit orthogonal mechanisms.** Microstructure, behavioral calibration, cross-outcome constraints, catalyst timing, and passive liquidity have different failure modes.
-3. **Separate activity from alpha.** A tiny heartbeat is allowed only after 24 hours without a BUY or SELL and only while strong reserves remain. It is tagged separately and never treated as evidence of edge.
+3. **Learn from every decision.** Executed entries and each agent's best rejected idea are scored at the declared horizon, so bad hypotheses lose allocation even when an over-strict filter prevented a fill.
 4. **Use balanced alpha risk.** Probation sizing is capped at 0.5%, with 0.15× Kelly, 2% per-market and 8% per-event limits.
 5. **Use liquidation accounting.** Open positions are marked at executable bids, not optimistic midpoints. Passive orders fill only after a later snapshot crosses or moves through the quote. No speculative maker rebates are credited.
 6. **Promote out of sample.** Let paper data accumulate through complete market resolutions, then rank agents by return, drawdown, calibration, turnover, and stability across categories/time windows—not in-sample return alone.

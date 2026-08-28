@@ -74,6 +74,7 @@ def main() -> None:
     news = rows(db, "SELECT * FROM news_items ORDER BY published_at DESC LIMIT 50") if table_exists(db, "news_items") else []
     adaptation_rows = rows(db, "SELECT * FROM strategy_adaptation ORDER BY agent_id") if table_exists(db, "strategy_adaptation") else []
     adaptations = {row["agent_id"]: row for row in adaptation_rows}
+    evaluation_rows = rows(db, "SELECT * FROM adaptation_evaluations") if table_exists(db, "adaptation_evaluations") else []
 
     trade_counts: dict[str, int] = defaultdict(int)
     position_counts: dict[str, int] = defaultdict(int)
@@ -272,7 +273,7 @@ def main() -> None:
             "cycle_id": cycle_id,
             "epoch": args.epoch,
             "epoch_label": args.label,
-            "strategy_version": "v2.3-self-healing",
+            "strategy_version": "v2.4-executable-learning",
             "mode": "Polymarket public-data paper trading",
             "starting_cash_per_agent": 10_000,
             "currency": "USDC",
@@ -308,6 +309,10 @@ def main() -> None:
                 "validated": sum(row.get("state") == "validated" for row in adaptation_rows),
                 "paused": sum(row.get("state") == "paused" for row in adaptation_rows),
                 "evaluations": sum(int(row.get("samples") or 0) for row in adaptation_rows),
+                "recorded": len(evaluation_rows),
+                "pending": sum(row.get("resolved_at") is None for row in evaluation_rows),
+                "counterfactual_recorded": sum(str(row.get("evaluation_class") or "").startswith("counterfactual") for row in evaluation_rows),
+                "executed_recorded": sum(row.get("evaluation_class") == "executed" for row in evaluation_rows),
             },
             "news": {
                 "items": len(news),

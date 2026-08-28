@@ -7,7 +7,7 @@ on:
     - cron: "17 */6 * * *"
   workflow_dispatch:
   # An authenticated outside-news monitor can request an immediate cycle without
-  # waiting for the next scheduled poll. The cycle still applies every v2.3 gate.
+  # waiting for the next scheduled poll. The cycle still applies every v2.4 gate.
   repository_dispatch:
     types: [news_alert]
 

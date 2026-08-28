@@ -56,7 +56,7 @@ class PaperBroker:
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, family TEXT NOT NULL,
                 allocation_status TEXT NOT NULL DEFAULT 'active',
                 allocation_tier TEXT NOT NULL DEFAULT 'probation',
-                strategy_version TEXT NOT NULL DEFAULT 'v2.3-self-healing',
+                strategy_version TEXT NOT NULL DEFAULT 'v2.4-executable-learning',
                 horizon INTEGER NOT NULL DEFAULT 1,
                 initial_cash REAL NOT NULL, cash REAL NOT NULL,
                 equity REAL NOT NULL, high_water REAL NOT NULL,
@@ -110,12 +110,17 @@ class PaperBroker:
                 maker_fills INTEGER NOT NULL DEFAULT 0,
                 retirement_fills INTEGER NOT NULL DEFAULT 0,
                 news_items INTEGER NOT NULL DEFAULT 0,
+                news_confirmed_markets INTEGER NOT NULL DEFAULT 0,
+                news_signal_overlays INTEGER NOT NULL DEFAULT 0,
                 history_points INTEGER NOT NULL DEFAULT 0,
                 history_ready_markets INTEGER NOT NULL DEFAULT 0,
                 signals_generated INTEGER NOT NULL DEFAULT 0,
+                executable_signals INTEGER NOT NULL DEFAULT 0,
                 signals_approved INTEGER NOT NULL DEFAULT 0,
                 risk_rejections INTEGER NOT NULL DEFAULT 0,
                 risk_rejection_reasons TEXT NOT NULL DEFAULT '{}',
+                counterfactuals_recorded INTEGER NOT NULL DEFAULT 0,
+                adaptation_resolved INTEGER NOT NULL DEFAULT 0,
                 strategies_paused INTEGER NOT NULL DEFAULT 0,
                 active_equity REAL, shadow_equity REAL, combined_equity REAL,
                 error TEXT
@@ -131,7 +136,12 @@ class PaperBroker:
                 entry_fee_per_share REAL NOT NULL, fee_rate REAL NOT NULL,
                 created_at REAL NOT NULL, due_at REAL NOT NULL,
                 resolved_at REAL, future_bid REAL, realized_return REAL,
-                strategy_version TEXT NOT NULL
+                strategy_version TEXT NOT NULL,
+                evaluation_class TEXT NOT NULL DEFAULT 'executed',
+                decision_reason TEXT,
+                estimated_probability REAL,
+                market_probability REAL,
+                net_edge REAL
             );
             CREATE TABLE IF NOT EXISTS strategy_adaptation (
                 agent_id TEXT PRIMARY KEY, samples INTEGER NOT NULL DEFAULT 0,
@@ -146,6 +156,9 @@ class PaperBroker:
             CREATE INDEX IF NOT EXISTS cycles_started_idx ON cycle_runs(started_at);
             CREATE INDEX IF NOT EXISTS news_published_idx ON news_items(published_at);
             CREATE INDEX IF NOT EXISTS adaptation_due_idx ON adaptation_evaluations(resolved_at,due_at);
+            CREATE INDEX IF NOT EXISTS idx_adaptation_agent_pending
+            ON adaptation_evaluations(agent_id,resolved_at)
+            WHERE resolved_at IS NULL;
             """
         )
         additions = {
@@ -181,13 +194,25 @@ class PaperBroker:
             "cycle_runs": {
                 "retirement_fills": "INTEGER NOT NULL DEFAULT 0",
                 "news_items": "INTEGER NOT NULL DEFAULT 0",
+                "news_confirmed_markets": "INTEGER NOT NULL DEFAULT 0",
+                "news_signal_overlays": "INTEGER NOT NULL DEFAULT 0",
                 "history_points": "INTEGER NOT NULL DEFAULT 0",
                 "history_ready_markets": "INTEGER NOT NULL DEFAULT 0",
                 "signals_generated": "INTEGER NOT NULL DEFAULT 0",
+                "executable_signals": "INTEGER NOT NULL DEFAULT 0",
                 "signals_approved": "INTEGER NOT NULL DEFAULT 0",
                 "risk_rejections": "INTEGER NOT NULL DEFAULT 0",
                 "risk_rejection_reasons": "TEXT NOT NULL DEFAULT '{}'",
+                "counterfactuals_recorded": "INTEGER NOT NULL DEFAULT 0",
+                "adaptation_resolved": "INTEGER NOT NULL DEFAULT 0",
                 "strategies_paused": "INTEGER NOT NULL DEFAULT 0",
+            },
+            "adaptation_evaluations": {
+                "evaluation_class": "TEXT NOT NULL DEFAULT 'executed'",
+                "decision_reason": "TEXT",
+                "estimated_probability": "REAL",
+                "market_probability": "REAL",
+                "net_edge": "REAL",
             },
         }
         for table, columns in additions.items():
@@ -198,6 +223,7 @@ class PaperBroker:
         self.db.execute(
             "UPDATE agents SET registered_at=updated_at WHERE registered_at IS NULL OR registered_at=0"
         )
+        self.db.execute("PRAGMA optimize")
         self.db.commit()
 
     def register_agents(self, specs: list) -> None:
@@ -300,23 +326,25 @@ class PaperBroker:
                 "SELECT horizon,strategy_version FROM agents WHERE id=?", (agent_id,)
             ).fetchone()
             horizon = max(1, int(agent["horizon"] if agent else 1))
-            version = str(agent["strategy_version"] if agent else "v2.3-self-healing")
+            version = str(agent["strategy_version"] if agent else "v2.4-executable-learning")
             self.db.execute(
                 """INSERT INTO adaptation_evaluations(
                    agent_id,market_id,token_id,outcome,entry_price,entry_fee_per_share,
-                   fee_rate,created_at,due_at,strategy_version
-                   ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                   fee_rate,created_at,due_at,strategy_version,evaluation_class,
+                   decision_reason,estimated_probability,market_probability,net_edge
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     agent_id, market.id, token_id, outcome, price,
                     fee / max(1e-12, shares), market.fee_rate, executed_at,
-                    executed_at + horizon * 5 * 60, version,
+                    executed_at + horizon * 5 * 60, version, "executed",
+                    reason, estimated_yes_probability, market_yes_probability, net_edge,
                 ),
             )
         return shares
 
     def _strategy_version(self, agent_id: str) -> str:
         row = self.db.execute("SELECT strategy_version FROM agents WHERE id=?", (agent_id,)).fetchone()
-        return str(row[0]) if row and row[0] else "v2.3-self-healing"
+        return str(row[0]) if row and row[0] else "v2.4-executable-learning"
 
     def _liquidate_market(
         self, agent_id: str, f: FeatureVector, reason: str,
@@ -433,12 +461,23 @@ class PaperBroker:
             else:
                 crossed = book.best_bid is not None and book.best_bid >= limit
             if crossed:
-                self._execute(row["agent_id"], f.market, row["token_id"], row["outcome"], row["side"],
-                              float(row["shares"]), limit, "maker", row["reason"],
+                opposite_levels = book.asks if row["side"] == "BUY" else book.bids
+                available = float(opposite_levels[0].size) if opposite_levels else 0.0
+                requested = float(row["shares"])
+                fill_shares = min(requested, available)
+                executed = self._execute(row["agent_id"], f.market, row["token_id"], row["outcome"], row["side"],
+                              fill_shares, limit, "maker", row["reason"],
                               row["estimated_yes_probability"], row["market_yes_probability"],
                               row["net_edge"], row["spread"], row["decision_class"] or "alpha")
-                self.db.execute("DELETE FROM pending_orders WHERE id=?", (row["id"],))
-                fills += 1
+                remaining = max(0.0, requested - executed)
+                if remaining < 1e-8:
+                    self.db.execute("DELETE FROM pending_orders WHERE id=?", (row["id"],))
+                else:
+                    self.db.execute(
+                        "UPDATE pending_orders SET shares=? WHERE id=?",
+                        (remaining, row["id"]),
+                    )
+                fills += int(executed > 0)
         self.db.commit()
         return fills
 
@@ -522,6 +561,75 @@ class PaperBroker:
             )
         ]
 
+    def record_counterfactual(
+        self,
+        signal: Signal,
+        feature: FeatureVector,
+        decision_reason: str,
+    ) -> bool:
+        """Queue one conservative, forward after-cost evaluation per agent.
+
+        Rejected and below-threshold ideas now teach the allocator instead of
+        leaving every strategy permanently in a zero-sample warming state.
+        The counterfactual assumes taker entry and taker liquidation, so an
+        unfilled maker quote is never credited with imaginary spread capture.
+        """
+        if not signal.preferred_outcome:
+            return False
+        pending = self.db.execute(
+            "SELECT 1 FROM adaptation_evaluations WHERE agent_id=? AND resolved_at IS NULL LIMIT 1",
+            (signal.agent_id,),
+        ).fetchone()
+        if pending is not None:
+            return False
+        agent = self.db.execute(
+            "SELECT horizon,strategy_version FROM agents WHERE id=?",
+            (signal.agent_id,),
+        ).fetchone()
+        if agent is None:
+            return False
+        binary = feature.market.binary_tokens()
+        if binary is None:
+            return False
+        (yes_outcome, yes_id), (no_outcome, no_id) = binary
+        outcome = signal.preferred_outcome
+        if outcome.upper() == "BOTH":
+            if feature.yes_book.best_ask is None or feature.no_book.best_ask is None:
+                return False
+            token_id = "BOTH"
+            entry_price = feature.yes_book.best_ask + feature.no_book.best_ask
+            entry_fee = (
+                feature.market.fee_rate * feature.yes_book.best_ask * (1.0 - feature.yes_book.best_ask)
+                + feature.market.fee_rate * feature.no_book.best_ask * (1.0 - feature.no_book.best_ask)
+            )
+        else:
+            is_yes = outcome.lower() == "yes"
+            token_id = yes_id if is_yes else no_id
+            outcome = yes_outcome if is_yes else no_outcome
+            book = feature.yes_book if is_yes else feature.no_book
+            if book.best_ask is None:
+                return False
+            entry_price = float(book.best_ask)
+            entry_fee = feature.market.fee_rate * entry_price * (1.0 - entry_price)
+        created_at = time.time()
+        horizon = max(1, int(agent["horizon"]))
+        self.db.execute(
+            """INSERT INTO adaptation_evaluations(
+               agent_id,market_id,token_id,outcome,entry_price,entry_fee_per_share,
+               fee_rate,created_at,due_at,strategy_version,evaluation_class,
+               decision_reason,estimated_probability,market_probability,net_edge
+               ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                signal.agent_id, feature.market.id, token_id, outcome, entry_price,
+                entry_fee, feature.market.fee_rate, created_at,
+                created_at + horizon * 5 * 60, str(agent["strategy_version"]),
+                "counterfactual-taker", decision_reason,
+                signal.estimated_yes_probability, feature.mid_yes, signal.edge,
+            ),
+        )
+        self.db.commit()
+        return True
+
     def resolve_adaptation(self, features: dict[str, FeatureVector]) -> int:
         now = time.time()
         resolved = 0
@@ -537,11 +645,20 @@ class PaperBroker:
             binary = feature.market.binary_tokens()
             if binary is None:
                 continue
-            book = feature.yes_book if row["token_id"] == binary[0][1] else feature.no_book
-            if book.best_bid is None:
-                continue
-            future_bid = float(book.best_bid)
-            exit_fee = float(row["fee_rate"]) * future_bid * (1.0 - future_bid)
+            if str(row["token_id"]) == "BOTH":
+                if feature.yes_book.best_bid is None or feature.no_book.best_bid is None:
+                    continue
+                future_bid = float(feature.yes_book.best_bid + feature.no_book.best_bid)
+                exit_fee = float(row["fee_rate"]) * (
+                    feature.yes_book.best_bid * (1.0 - feature.yes_book.best_bid)
+                    + feature.no_book.best_bid * (1.0 - feature.no_book.best_bid)
+                )
+            else:
+                book = feature.yes_book if row["token_id"] == binary[0][1] else feature.no_book
+                if book.best_bid is None:
+                    continue
+                future_bid = float(book.best_bid)
+                exit_fee = float(row["fee_rate"]) * future_bid * (1.0 - future_bid)
             entry_price = float(row["entry_price"])
             realized_return = (
                 future_bid - entry_price - float(row["entry_fee_per_share"]) - exit_fee
@@ -705,12 +822,17 @@ class PaperBroker:
         maker_fills: int = 0,
         retirement_fills: int = 0,
         news_items: int = 0,
+        news_confirmed_markets: int = 0,
+        news_signal_overlays: int = 0,
         history_points: int = 0,
         history_ready_markets: int = 0,
         signals_generated: int = 0,
+        executable_signals: int = 0,
         signals_approved: int = 0,
         risk_rejections: int = 0,
         risk_rejection_reasons: str = "{}",
+        counterfactuals_recorded: int = 0,
+        adaptation_resolved: int = 0,
         strategies_paused: int = 0,
         error: str | None = None,
     ) -> None:
@@ -724,17 +846,21 @@ class PaperBroker:
         self.db.execute(
             """UPDATE cycle_runs SET finished_at=?,status=?,agents_evaluated=?,
                markets_discovered=?,markets_with_books=?,alpha_fills=?,heartbeat_fills=?,
-               maker_fills=?,retirement_fills=?,news_items=?,history_points=?,
-               history_ready_markets=?,signals_generated=?,signals_approved=?,
-               risk_rejections=?,risk_rejection_reasons=?,strategies_paused=?,
+               maker_fills=?,retirement_fills=?,news_items=?,news_confirmed_markets=?,
+               news_signal_overlays=?,history_points=?,
+               history_ready_markets=?,signals_generated=?,executable_signals=?,signals_approved=?,
+               risk_rejections=?,risk_rejection_reasons=?,counterfactuals_recorded=?,
+               adaptation_resolved=?,strategies_paused=?,
                active_equity=?,shadow_equity=?,combined_equity=?,error=?
                WHERE cycle_id=?""",
             (
                 time.time(), status, agents_evaluated, markets_discovered,
                 markets_with_books, alpha_fills, heartbeat_fills, maker_fills,
-                retirement_fills, news_items, history_points, history_ready_markets,
-                signals_generated, signals_approved, risk_rejections,
-                risk_rejection_reasons, strategies_paused,
+                retirement_fills, news_items, news_confirmed_markets, news_signal_overlays,
+                history_points, history_ready_markets,
+                signals_generated, executable_signals, signals_approved, risk_rejections,
+                risk_rejection_reasons, counterfactuals_recorded, adaptation_resolved,
+                strategies_paused,
                 active, shadow, active + shadow, error, cycle_id,
             ),
         )

@@ -23,7 +23,10 @@ def build_agent_specs() -> list[AgentSpec]:
     for family_index, family in enumerate(families):
         for variant in range(1, 11):
             conservative = (variant - 1) / 9.0
-            threshold = 0.006 + 0.0015 * variant
+            # Thresholds are applied to one canonical, fully after-cost edge.
+            # The old 0.75%-2.10% thresholds sat above the maximum output of
+            # most models and made six entire strategy families inert.
+            threshold = 0.0015 + 0.0004 * variant
             max_spread = 0.035 + 0.004 * (variant % 4)
             min_liquidity = 1_000.0 + 750.0 * (variant % 5)
             execution = "maker" if family == "liquidity_maker" else "taker"
@@ -33,7 +36,7 @@ def build_agent_specs() -> list[AgentSpec]:
                     name=f"{family.replace('_', '-').title()}-{variant:02d}",
                     family=family,
                     variant=variant,
-                    threshold=threshold if family != "complement_arb" else 0.001 + variant * 0.00025,
+                    threshold=threshold if family != "complement_arb" else 0.00075 + variant * 0.00015,
                     horizon=1 + (variant % 10),
                     risk_fraction=0.005 + 0.0075 * (1.0 - conservative),
                     max_spread=max_spread,
@@ -47,7 +50,7 @@ def build_agent_specs() -> list[AgentSpec]:
                     },
                     allocation_status="shadow" if family == "crowd_bias" else "active",
                     allocation_tier="probation",
-                    strategy_version="v2.3-self-healing",
+                    strategy_version="v2.4-executable-learning",
                 )
             )
     assert len(specs) == 100

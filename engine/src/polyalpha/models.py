@@ -248,7 +248,7 @@ class AgentSpec:
     params: dict[str, float]
     allocation_status: str = "active"
     allocation_tier: str = "probation"
-    strategy_version: str = "v2.3-self-healing"
+    strategy_version: str = "v2.4-executable-learning"
 
 
 @dataclass(frozen=True)
@@ -263,4 +263,6 @@ class Signal:
     execution: str
     reason: str
     preferred_outcome: str | None = None
+    round_trip_cost: float = 0.0
+    expected_exit_price: float | None = None
     signal_kind: str = "alpha"
