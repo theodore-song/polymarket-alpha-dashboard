@@ -1,6 +1,8 @@
 name: PolyAlpha continuous five-minute paper cycle
 
 on:
+  push:
+    branches: [main]
   schedule:
     # Best-effort watchdog only. Successful runs dispatch their own successor,
     # avoiding GitHub's heavily delayed high-frequency scheduled-event queue.
