@@ -31,7 +31,7 @@ def main() -> None:
 
     assert dashboard["meta"]["snapshot_version"] == 2
     assert dashboard["meta"]["epoch"] == "v2-edge-only"
-    assert dashboard["meta"]["strategy_version"] == "v2.4-executable-learning"
+    assert dashboard["meta"]["strategy_version"] == "v2.5-validated-alpha"
     assert len(dashboard["agents"]) == 100
     assert dashboard["summary"]["agents_evaluated"] == 100
     assert health["status"] == "healthy"
@@ -60,7 +60,7 @@ def main() -> None:
         )
         assert db.execute("SELECT COUNT(*) FROM trades").fetchone()[0] == len(trades["trades"])
         assert db.execute(
-            "SELECT COUNT(*) FROM pending_orders WHERE COALESCE(strategy_version,'') != 'v2.4-executable-learning'"
+            "SELECT COUNT(*) FROM pending_orders WHERE COALESCE(strategy_version,'') != 'v2.5-validated-alpha'"
         ).fetchone()[0] == 0
         assert db.execute(
             "SELECT COALESCE(MAX(n),0) FROM (SELECT COUNT(*) n FROM market_history GROUP BY market_id)"

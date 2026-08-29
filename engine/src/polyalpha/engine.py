@@ -14,6 +14,8 @@ from .models import Book, FeatureVector, Market
 from .news import NewsClient, NewsMatcher
 from .risk import RiskManager
 
+STRATEGY_VERSION = "v2.5-validated-alpha"
+
 
 class MarketDataSource(Protocol):
     def all_tradable_markets(self, max_markets: int | None = None) -> list[Market]: ...
@@ -58,6 +60,7 @@ class TradingEngine:
         max_new_positions_per_cycle: int = 3,
         max_turnover_fraction: float = 0.10,
         cooldown_seconds: float = 30 * 60,
+        validation_required: bool = True,
     ) -> None:
         self.source = source
         self.agents = agents
@@ -70,7 +73,10 @@ class TradingEngine:
         self.max_new_positions_per_cycle = max_new_positions_per_cycle
         self.max_turnover_fraction = max_turnover_fraction
         self.cooldown_seconds = cooldown_seconds
+        self.validation_required = validation_required
         self.broker.register_agents([agent.spec for agent in agents])
+        if validation_required:
+            self.broker.ensure_strategy_epoch(STRATEGY_VERSION)
 
     def cycle(self, max_markets: int | None = None) -> CycleReport:
         cycle_id = f"{int(time.time())}-{uuid.uuid4().hex[:8]}"
@@ -142,9 +148,9 @@ class TradingEngine:
         history_ready_markets = sum(feature.history_ready for feature in feature_map.values())
         self.broker.append_feature_history(self.features.drain_appended())
 
-        # Quotes from older execution models must not fill under v2.4.
+        # Quotes from older execution models must never fill under v2.5.
         # Crowd-bias quotes are also removed before pending-order processing.
-        self.broker.cancel_stale_pending("v2.4-executable-learning")
+        self.broker.cancel_stale_pending(STRATEGY_VERSION)
         for agent in self.agents:
             if agent.spec.family == "crowd_bias":
                 self.broker.cancel_pending(agent.spec.id)
@@ -153,7 +159,7 @@ class TradingEngine:
         adaptation_resolved = self.broker.resolve_adaptation(feature_map)
         adaptations = self.broker.adaptation_states()
 
-        # v2.4 keeps the v2.2 audited retirements in force.
+        # v2.5 keeps the audited retirements in force.
         # All legacy activation/heartbeat inventory and every crowd-bias position
         # is liquidated at the executable bid, with history preserved permanently.
         for agent in self.agents:
@@ -173,7 +179,7 @@ class TradingEngine:
                     self.broker.retire_market(
                         agent.spec.id,
                         feature,
-                        "v2.4 audited strategy retirement",
+                        "v2.5 audited strategy retirement",
                     )
             if agent.spec.family == "crowd_bias" or (
                 adaptive is not None and adaptive.state == "paused"
@@ -207,15 +213,55 @@ class TradingEngine:
             state.active_markets += int(previous <= 0 < target)
             state.active_markets -= int(previous > 0 >= target)
 
+        def eligible_shadow_sample(agent, signals) -> bool:
+            """Record only signals that could really have been executed safely.
+
+            This intentionally excludes rejected/extreme ideas, wide books,
+            shallow books and complete-set arbitrage.  Those contaminated v2.4's
+            learning statistics and made the allocator optimize noise.
+            """
+            pool = []
+            for market_id, signal in signals.items():
+                if signal.outcome is None or signal.outcome.upper() == "BOTH":
+                    continue
+                feature = feature_map[market_id]
+                if feature.market.liquidity < max(5_000.0, agent.spec.min_liquidity):
+                    continue
+                book = feature.yes_book if signal.outcome.lower() == "yes" else feature.no_book
+                if book.best_bid is None or book.best_ask is None or not book.asks:
+                    continue
+                ask = float(book.best_ask)
+                spread = ask - float(book.best_bid)
+                if not 0.10 <= ask <= 0.90 or spread / max(0.01, ask) > 0.01:
+                    continue
+                displayed = float(book.asks[0].price * book.asks[0].size)
+                if displayed < max(10.0, feature.market.min_order_size * ask * 10.0):
+                    continue
+                if signal.edge < agent.spec.threshold:
+                    continue
+                pool.append((signal.edge, feature, signal))
+            if not pool:
+                return False
+            _, feature, signal = max(pool, key=lambda item: item[0])
+            return self.broker.record_counterfactual(
+                signal, feature, "eligible executable shadow signal"
+            )
+
         for agent in self.agents:
             state = states[agent.spec.id]
             adaptive = adaptations.get(agent.spec.id)
-            allocation_multiplier = adaptive.allocation_multiplier if adaptive else 1.0
-            if agent.spec.family == "crowd_bias" or allocation_multiplier <= 0:
-                continue
             signals = {market_id: agent.decide(feature) for market_id, feature in feature_map.items()}
             signals_generated += sum(signal.outcome is not None for signal in signals.values())
             news_signal_overlays += sum("external-news overlay" in signal.reason for signal in signals.values())
+            if agent.spec.family == "crowd_bias":
+                continue
+            counterfactuals_recorded += int(eligible_shadow_sample(agent, signals))
+            allocation_multiplier = adaptive.allocation_multiplier if adaptive else 0.0
+            if not self.validation_required:
+                allocation_multiplier = 1.0
+            if allocation_multiplier <= 0:
+                # Research never stops, but unvalidated hypotheses get no capital.
+                continue
             decision_reasons: dict[str, str] = {}
             held = self.broker.market_outcomes(agent.spec.id)
             turnover_limit = max(0.0, state.equity * self.max_turnover_fraction)
@@ -298,25 +344,6 @@ class TradingEngine:
                 risk_adding_turnover += decision.target_notional
                 apply_state(state, feature, decision.target_notional)
 
-            # One unresolved forward sample per agent is enough to make the
-            # allocator learn continuously without pretending rejected ideas
-            # were fills.  The broker uses conservative taker entry/exit marks.
-            counterfactual_pool = [
-                (abs(signal.estimated_yes_probability - feature_map[market_id].mid_yes) + signal.edge,
-                 feature_map[market_id], signal)
-                for market_id, signal in signals.items()
-                if signal.preferred_outcome is not None
-            ]
-            if counterfactual_pool:
-                _, feature, signal = max(counterfactual_pool, key=lambda item: item[0])
-                reason = decision_reasons.get(
-                    feature.market.id,
-                    "below canonical net-edge threshold" if signal.outcome is None else "not selected",
-                )
-                counterfactuals_recorded += int(
-                    self.broker.record_counterfactual(signal, feature, reason)
-                )
-
         self.broker.mark_to_market(feature_map, record_snapshot=True)
         fill_counts = self.broker.fill_counts_since(starting_trade_id)
         self.broker.finish_cycle(
@@ -341,7 +368,7 @@ class TradingEngine:
             risk_rejection_reasons=json.dumps(dict(risk_rejection_reasons), sort_keys=True),
             counterfactuals_recorded=counterfactuals_recorded,
             adaptation_resolved=adaptation_resolved,
-            strategies_paused=sum(state.state == "paused" for state in adaptations.values()),
+            strategies_paused=sum(state.state in {"paused", "rejected"} for state in adaptations.values()),
             error="; ".join(history_errors + news_errors)[:1000] or None,
         )
         return CycleReport(
@@ -364,7 +391,7 @@ class TradingEngine:
             dict(risk_rejection_reasons),
             counterfactuals_recorded,
             adaptation_resolved,
-            sum(state.state == "paused" for state in adaptations.values()),
+            sum(state.state in {"paused", "rejected"} for state in adaptations.values()),
             tuple(history_errors + news_errors),
             time.monotonic() - started,
         )

@@ -12,7 +12,7 @@ type Agent = {
   allocation_status?: 'active' | 'shadow'; allocation_tier?: 'probation' | 'validated'; strategy_version?: string;
   fees_paid?: number; turnover?: number; liquidation_value?: number; realized_pnl?: number; unrealized_pnl?: number;
   alpha_trades?: number; heartbeat_trades?: number; activation_trades?: number; retirement_trades?: number;
-  adaptation?: { samples: number; mean_return: number; lower_bound: number | null; upper_bound: number | null; allocation_multiplier: number; state: 'warming' | 'reduced' | 'probation' | 'validated' | 'paused' };
+  adaptation?: { samples: number; mean_return: number; lower_bound: number | null; upper_bound: number | null; allocation_multiplier: number; win_rate?: number; research_samples?: number; executed_samples?: number; state: 'warming' | 'research' | 'rejected' | 'reduced' | 'probation' | 'validated' | 'paused' };
   promotion?: { eligible: boolean; resolved_positions: number; days_observed: number; categories: number; edge_lcb: number | null; brier_improvement: number | null; max_event_profit_share: number | null; checks: Record<string, boolean> };
 };
 type Trade = { id: number; timestamp: number; agent_id: string; market_id: string; token_id: string; outcome: string; side: string; shares: number; price: number; fee: number; execution: string; reason: string; net_edge?: number | null; spread?: number | null; decision_class?: string | null; strategy_version?: string | null };
@@ -119,7 +119,7 @@ function AgentDrawer({ snapshot, agent, close, showTrades }: { snapshot: Snapsho
 
 export default function Home() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [epochs, setEpochs] = useState<Epoch[]>([{ id: 'v2-edge-only', label: 'V2.4 · Executable adaptive alpha', file: '/data/snapshot.json', current: true }]);
+  const [epochs, setEpochs] = useState<Epoch[]>([{ id: 'v2-edge-only', label: 'V2.5 · Validation-first alpha', file: '/data/snapshot.json', current: true }]);
   const [epochId, setEpochId] = useState('v2-edge-only');
   const [loadError, setLoadError] = useState(false);
   const [view, setView] = useState<View>('overview');
@@ -217,7 +217,9 @@ export default function Home() {
   if (!snapshot) return <main className="loading-screen">Loading PolyAlpha ledger…</main>;
 
   const leaders = [...snapshot.agents].sort((a, b) => b.equity - a.equity);
-  const v24Fills = snapshot.trades.filter((trade) => trade.strategy_version === 'v2.4-executable-learning');
+  const v25Fills = snapshot.trades.filter((trade) => trade.strategy_version === 'v2.5-validated-alpha');
+  const validatedAgents = snapshot.agents.filter((agent) => agent.adaptation?.state === 'validated');
+  const researchAgents = snapshot.agents.filter((agent) => agent.adaptation?.state === 'research');
   const positionedAgents = snapshot.agents.filter((agent) => agent.positions > 0);
   const positionedLeaders = [...positionedAgents].sort((a, b) => b.positions - a.positions || b.trades - a.trades || b.equity - a.equity);
   const fallbackBook: BookSummary = { agents: snapshot.summary.agents, aggregate_equity: snapshot.summary.aggregate_equity, aggregate_starting_cash: snapshot.summary.aggregate_starting_cash, return_pct: 100 * (snapshot.summary.aggregate_equity / snapshot.summary.aggregate_starting_cash - 1), trades: snapshot.summary.trades, fees: snapshot.trades.reduce((sum, trade) => sum + trade.fee, 0), turnover: snapshot.trades.filter((trade) => trade.side === 'BUY' || trade.side === 'SELL').reduce((sum, trade) => sum + trade.shares * trade.price, 0), realized_pnl: 0, unrealized_pnl: snapshot.summary.aggregate_equity - snapshot.summary.aggregate_starting_cash };
@@ -249,7 +251,7 @@ export default function Home() {
     <main>
       <header className="site-header">
         <button className="brand" onClick={() => navigate('overview')} aria-label="PolyAlpha overview"><span className="brand-mark">Pα</span><span>POLYALPHA</span></button>
-        <div className="header-meta"><span className="release-chip">Dashboard v2.4.1</span><span className={`status-dot ${runtimeStatus}`} /> {isV2 ? `${runtimeStatus === 'healthy' ? 'Live' : 'Stale'} paper runner` : 'Archived paper ledger'}</div>
+        <div className="header-meta"><span className="release-chip">Dashboard v2.5</span><span className={`status-dot ${runtimeStatus}`} /> {isV2 ? `${runtimeStatus === 'healthy' ? 'Live' : 'Stale'} paper runner` : 'Archived paper ledger'}</div>
       </header>
       <nav className="site-nav" aria-label="Dashboard sections">
         {(['overview', 'portfolios', 'trades', 'positions', 'methodology'] as View[]).map((item) => <button key={item} className={view === item ? 'active' : ''} onClick={() => navigate(item)}>{item === 'positions' ? 'Positions & orders' : item}</button>)}
@@ -259,17 +261,17 @@ export default function Home() {
 
       {view === 'overview' && <>
         <section className="hero" id="top">
-          <div className="eyebrow">LIVE DEPLOYMENT · V2.4 EXECUTABLE LEARNING</div>
+          <div className="eyebrow">LIVE DEPLOYMENT · V2.5 VALIDATION-FIRST ALPHA</div>
           <h1>Every agent.<br />Every position.<br /><em>Nothing hidden.</em></h1>
-          <p className="hero-copy">A transparent view into 100 Polymarket research portfolios. Every hypothesis is converted into one executable, after-cost edge; trades use real displayed depth, and both accepted and rejected ideas feed forward strategy selection.</p>
+          <p className="hero-copy">The objective is positive, repeatable return after spread and fees. Historical losses remain visible, but unvalidated hypotheses now receive zero new capital; only clean executable forward tests can unlock cautious paper positions.</p>
           <div className="hero-total"><span>{snapshot.summary.active_book ? 'Active alpha-book equity' : 'Aggregate paper equity'}</span><strong>{money0.format(headlineBook.aggregate_equity)}</strong><small><ReturnValue value={aggregateReturn} /> from {money0.format(headlineBook.aggregate_starting_cash)} starting paper capital</small></div>
         </section>
-        {isV2 && <section className="release-proof" aria-label="Visible v2.4 deployment proof">
-          <div className="release-proof-title"><span>What changed on this deployment</span><strong>V2.4 IS LIVE</strong><small>These values come from the current public ledger—not placeholder copy.</small></div>
-          <div><span>New-engine fills</span><strong>{v24Fills.length}</strong><small>Trades explicitly tagged v2.4</small></div>
-          <div><span>Learning outcomes</span><strong>{snapshot.summary.adaptation?.evaluations ?? 0}</strong><small>{snapshot.summary.adaptation?.pending ?? 0} more pending</small></div>
-          <div><span>Strategies cut</span><strong>{(snapshot.summary.adaptation?.reduced ?? 0) + (snapshot.summary.adaptation?.paused ?? 0)}</strong><small>Reduced or paused from evidence</small></div>
-          <div><span>Capital at work</span><strong>{positionedAgents.length}</strong><small>Agents with open positions now</small></div>
+        {isV2 && <section className="release-proof" aria-label="Visible v2.5 deployment proof">
+          <div className="release-proof-title"><span>Capital protection status</span><strong>{validatedAgents.length ? 'VALIDATED CAPITAL ONLY' : 'NO NEW RISK'}</strong><small>Profit is not guaranteed. Capital unlocks only after statistically positive, after-cost forward evidence.</small></div>
+          <div><span>Validated agents</span><strong>{validatedAgents.length}</strong><small>30 clean samples + positive 95% lower bound required</small></div>
+          <div><span>Researching</span><strong>{researchAgents.length}</strong><small>Still learning with zero capital allocation</small></div>
+          <div><span>V2.5 capital fills</span><strong>{v25Fills.length}</strong><small>New positions after the validation gate</small></div>
+          <div><span>Historical loss retained</span><strong>{money.format(headlineBook.realized_pnl)}</strong><small>Never reset or hidden</small></div>
         </section>}
         {isV2 && <section className={`runtime-banner ${runtimeStatus}`} aria-label="Autonomous runner status">
           <div className="runtime-primary"><span className="eyebrow">Self-chained five-minute runner</span><strong>{economicStatus}</strong><small>Last success {formatAge(dataAge)} · cycle {snapshot.meta.cycle_id ?? 'awaiting live state'}</small></div>
@@ -294,9 +296,9 @@ export default function Home() {
             <p className="learning-note">{snapshot.summary.news?.sources ?? 0} publishers · {liveCycle?.news_confirmed_markets ?? 0} confirmed markets · {liveCycle?.news_signal_overlays ?? 0} signal overlays this cycle</p>
             <div className="news-list">{snapshot.news?.length ? snapshot.news.slice(0, 6).map((item) => <a href={item.link} target="_blank" rel="noreferrer" key={item.id}><div><strong>{item.title}</strong><span>{item.source} · {formatTime(item.published_at)}</span></div><span>↗</span></a>) : <p className="empty-copy">The runner has not stored a qualifying public-feed item yet.</p>}</div>
           </article>
-          <article className="panel intelligence-panel"><div className="section-heading"><div><span className="eyebrow">Online controls</span><h2>What works gets capital</h2></div><p className="section-note">Executed trades and each agent’s best rejected idea are scored at the declared horizon against a future executable exit.</p></div>
+          <article className="panel intelligence-panel"><div className="section-heading"><div><span className="eyebrow">Online controls</span><h2>Only validated alpha gets capital</h2></div><p className="section-note">Only tight-spread, liquid, executable signals are tested at the declared horizon. Rejected and extreme ideas cannot authorize capital.</p></div>
             <p className="learning-note">{snapshot.summary.adaptation?.evaluations ?? 0} resolved · {snapshot.summary.adaptation?.pending ?? 0} pending · {liveCycle?.counterfactuals_recorded ?? 0} added this cycle</p>
-            <div className="adaptation-grid">{['warming', 'probation', 'reduced', 'validated', 'paused'].map((state) => <div key={state}><span className={`adaptation-state ${state}`}>{state}</span><strong>{snapshot.summary.adaptation?.[state] ?? snapshot.agents.filter((agent) => agent.adaptation?.state === state).length}</strong></div>)}</div>
+            <div className="adaptation-grid">{['research', 'validated', 'rejected', 'paused'].map((state) => <div key={state}><span className={`adaptation-state ${state}`}>{state}</span><strong>{snapshot.summary.adaptation?.[state] ?? snapshot.agents.filter((agent) => agent.adaptation?.state === state).length}</strong></div>)}</div>
           </article>
         </section>}
         <section className="panel">
@@ -332,7 +334,7 @@ export default function Home() {
 
       {view === 'methodology' && <section className="page-section methodology-page">
         <div className="page-title"><span className="eyebrow">How to read the experiment</span><h1>Methodology, costs & risk</h1><p>The dashboard exposes a research tournament—not a claim of proven returns. Here is exactly how the paper results were produced.</p></div>
-        {isV2 ? <div className="method-grid"><article><span>01</span><h2>Time-valid features</h2><p>All 100 agents evaluate every tradable market each runner cycle. The engine backfills Polymarket’s timestamped five-minute price history, so a delayed host cannot freeze indicators or masquerade as momentum.</p></article><article><span>02</span><h2>One executable edge</h2><p>Each signal is reduced to expected executable exit value minus displayed entry price, one entry fee, one exit fee, and the modeled spread. Displayed depth caps size instead of silently eliminating every otherwise valid trade.</p></article><article><span>03</span><h2>Confirmed outside information</h2><p>Hundreds of recent articles from independent publishers are fetched every cycle. A market adjustment requires text relevance, two sources, directional agreement, and confirming price or order-book movement; the adjustment remains tightly capped.</p></article><article><span>04</span><h2>Counterfactual adaptation</h2><p>Every executed alpha trade and each agent’s best rejected idea are scored at the strategy horizon. Negative evidence cuts size to 0.25× or pauses the strategy; a positive lower confidence bound can validate 1.25× sizing.</p></article></div> : <div className="warning-card"><div className="warning-mark">V1</div><div><h2>Forced-activation archive</h2><p>This immutable epoch required larger discovery positions without relative-spread filtering. Its cost and crowd-bias losses remain visible for comparison with v2.</p></div></div>}
+        {isV2 ? <div className="method-grid"><article><span>01</span><h2>Time-valid features</h2><p>All 100 agents evaluate every tradable market each runner cycle. The engine backfills Polymarket’s timestamped five-minute price history, so a delayed host cannot freeze indicators or masquerade as momentum.</p></article><article><span>02</span><h2>One executable edge</h2><p>Each signal is reduced to expected executable exit value minus displayed entry price, one entry fee, one exit fee, and the modeled spread. Displayed depth caps size instead of silently eliminating every otherwise valid trade.</p></article><article><span>03</span><h2>Confirmed outside information</h2><p>Hundreds of recent articles from independent publishers are fetched every cycle. A market adjustment requires text relevance, two sources, directional agreement, and confirming price or order-book movement; the adjustment remains tightly capped.</p></article><article><span>04</span><h2>Validation-first allocation</h2><p>Only executable signals with 10¢–90¢ prices, at most 1% relative spread, sufficient depth, and positive after-cost edge enter shadow testing. Thirty current-version samples, at least 55% wins, and a positive 95% lower confidence bound are required before a 0.10% paper allocation; ten losing live samples revoke it.</p></article></div> : <div className="warning-card"><div className="warning-mark">V1</div><div><h2>Forced-activation archive</h2><p>This immutable epoch required larger discovery positions without relative-spread filtering. Its cost and crowd-bias losses remain visible for comparison with v2.</p></div></div>}
         <div className="method-section"><span className="eyebrow">The ten hypotheses</span><div className="hypothesis-list">{families.map((family, index) => { const agent = snapshot.agents.find((row) => row.family === family)!; return <div key={family}><span>{String(index + 1).padStart(2, '0')}</span><div><h3>{familyLabel(family)}</h3><p>{agent.strategy}</p></div><strong>10 variants</strong></div>; })}</div></div>
         <div className="warning-card"><div className="warning-mark">!</div><div><h2>Paper results are not investable evidence.</h2><p>This snapshot is short, unresolved, and deliberately transparent about inactive agents and early losses. Robust strategy selection requires substantially more forward data, complete market resolutions, probability-calibration scoring, and held-out evaluation.</p></div></div>
       </section>}

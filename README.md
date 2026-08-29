@@ -4,7 +4,7 @@ Public analytics for the PolyAlpha 100-agent Polymarket paper-trading tournament
 
 - Live dashboard: https://polymarket-alpha-dashboard-five.vercel.app
 - GitHub repository: https://github.com/theodore-song/polymarket-alpha-dashboard
-- Current runtime: v2.4 evaluates all 100 agents across the full tradable Polymarket universe through a self-chained five-minute runner, including 90 active-book agents and 10 quarantined crowd-bias shadow agents.
+- Current runtime: v2.5 evaluates all 100 agents across the full tradable Polymarket universe through a self-chained five-minute runner, including 90 validation-gated agents and 10 quarantined crowd-bias shadow agents.
 - Immutable archive: v1 forced-activation ledger with all 1,461 trades and 609 positions preserved for audit.
 
 The dashboard exposes:
@@ -19,13 +19,14 @@ The dashboard exposes:
 - live cycle health, cache-free polling, alpha/retirement attribution, and a downloadable SQLite audit ledger;
 - conservative multi-source public-news confirmation and forward, after-cost strategy adaptation.
 
-V2.4 disables forced activation and inactivity heartbeat trades. Temporal signals
+V2.5 disables forced activation and inactivity heartbeat trades. Temporal signals
 use Polymarket's own timestamped five-minute history. Each hypothesis is converted
 to one canonical executable edge after the modeled entry, exit, spread, and fee
-costs; displayed liquidity caps position size. Every executed entry and each
-agent's best rejected idea are scored counterfactually, so a strategy's allocation
-is reduced or paused when forward executable returns provide statistically
-negative evidence. Multi-publisher news is fetched on each runner cycle. The
+costs; displayed liquidity caps position size. Only tight-spread, liquid,
+fully executable signals enter zero-capital forward testing. Rejected and extreme
+ideas cannot authorize capital. Thirty current-version samples, a 55% win rate,
+and a positive 95% lower confidence bound are required before cautious allocation.
+Multi-publisher news is fetched on each runner cycle. The
 workflow also accepts an authenticated `news_alert` repository dispatch
 for an immediate cycle from an outside monitor; without that optional dispatcher,
 the current GitHub-hosted runner is five-minute reactive, not sub-minute. Each

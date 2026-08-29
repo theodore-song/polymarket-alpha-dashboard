@@ -1,7 +1,7 @@
 [
   {
     "id": "v2-edge-only",
-    "label": "V2.4 LIVE · Executable adaptive alpha",
+    "label": "V2.5 LIVE · Validation-first alpha",
     "file": "/data/snapshot.json",
     "current": true,
     "immutable": false

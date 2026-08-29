@@ -328,7 +328,7 @@ class BrokerAndEngineTests(unittest.TestCase):
             self.assertLess(state.upper_bound or 0, 0)
             broker.close()
 
-    def test_rejected_signal_creates_and_resolves_counterfactual_learning(self) -> None:
+    def test_eligible_shadow_signal_creates_and_resolves_clean_learning(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             broker = PaperBroker(Path(tmp) / "paper.sqlite3")
             spec = replace(build_agent_specs()[0], horizon=1)
@@ -338,9 +338,9 @@ class BrokerAndEngineTests(unittest.TestCase):
                 "yes": Book("yes", (Level(.49, 1000),), (Level(.50, 1000),), time.time()),
                 "no": Book("no", (Level(.49, 1000),), (Level(.50, 1000),), time.time()),
             })["m1"]
-            signal = Signal(spec.id, "m1", None, .60, 0, 0, 0,
-                            "taker", "below threshold", "Yes")
-            self.assertTrue(broker.record_counterfactual(signal, feature, "below threshold"))
+            signal = Signal(spec.id, "m1", "Yes", .60, .02, 0, 0,
+                            "taker", "eligible shadow", "Yes")
+            self.assertTrue(broker.record_counterfactual(signal, feature, "eligible shadow"))
             self.assertFalse(broker.record_counterfactual(signal, feature, "duplicate"))
             broker.db.execute("UPDATE adaptation_evaluations SET due_at=?", (time.time() - 1,))
             broker.db.commit()
@@ -355,8 +355,54 @@ class BrokerAndEngineTests(unittest.TestCase):
             row = broker.db.execute(
                 "SELECT evaluation_class,resolved_at FROM adaptation_evaluations"
             ).fetchone()
-            self.assertEqual(row["evaluation_class"], "counterfactual-taker")
+            self.assertEqual(row["evaluation_class"], "eligible-shadow")
             self.assertIsNotNone(row["resolved_at"])
+            broker.close()
+
+    def test_capital_unlocks_only_after_positive_current_version_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            broker = PaperBroker(Path(tmp) / "paper.sqlite3")
+            spec = build_agent_specs()[0]
+            broker.register_agents([spec])
+            broker.ensure_strategy_epoch(spec.strategy_version)
+            now = time.time()
+            broker.db.executemany(
+                """INSERT INTO adaptation_evaluations(
+                   agent_id,market_id,token_id,outcome,entry_price,entry_fee_per_share,
+                   fee_rate,created_at,due_at,resolved_at,future_bid,realized_return,
+                   strategy_version,evaluation_class) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                [(spec.id, "m1", "yes", "Yes", .50, 0, 0, now - 1, now - 1,
+                  now, .51, .01, spec.strategy_version, "eligible-shadow") for _ in range(30)],
+            )
+            broker.db.commit()
+            broker.refresh_adaptation(spec.id)
+            state = broker.adaptation_states()[spec.id]
+            self.assertEqual(state.state, "validated")
+            self.assertEqual(state.research_samples, 30)
+            self.assertAlmostEqual(state.allocation_multiplier, .20)
+            broker.close()
+
+    def test_old_version_evidence_cannot_authorize_new_capital(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            broker = PaperBroker(Path(tmp) / "paper.sqlite3")
+            spec = build_agent_specs()[0]
+            broker.register_agents([spec])
+            now = time.time()
+            broker.db.executemany(
+                """INSERT INTO adaptation_evaluations(
+                   agent_id,market_id,token_id,outcome,entry_price,entry_fee_per_share,
+                   fee_rate,created_at,due_at,resolved_at,future_bid,realized_return,
+                   strategy_version,evaluation_class) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                [(spec.id, "m1", "yes", "Yes", .50, 0, 0, now - 1, now - 1,
+                  now, .55, .10, "v2.4-executable-learning", "executed") for _ in range(100)],
+            )
+            broker.db.commit()
+            broker.ensure_strategy_epoch(spec.strategy_version)
+            broker.refresh_adaptation(spec.id)
+            state = broker.adaptation_states()[spec.id]
+            self.assertEqual(state.state, "research")
+            self.assertEqual(state.samples, 0)
+            self.assertEqual(state.allocation_multiplier, 0)
             broker.close()
 
     def test_feature_history_survives_restart_and_is_bounded(self) -> None:
@@ -498,6 +544,7 @@ class BrokerAndEngineTests(unittest.TestCase):
             try:
                 engine = TradingEngine(
                     self.single_market_data(), [ScriptedAgent()], broker,
+                    validation_required=False,
                 )
                 engine.cycle()
                 self.assertEqual(broker.db.execute("SELECT COUNT(*) FROM positions").fetchone()[0], 1)

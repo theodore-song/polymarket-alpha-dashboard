@@ -81,7 +81,7 @@ def main() -> int:
         "--equity-output", str(output / "equity.json"),
         "--health-output", str(health_path),
         "--epoch", "v2-edge-only",
-        "--label", "V2.4 · Executable adaptive alpha",
+        "--label", "V2.5 · Validation-first alpha",
     ]
     if args.skip_market_enrichment:
         command.append("--skip-market-enrichment")

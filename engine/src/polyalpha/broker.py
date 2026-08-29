@@ -33,6 +33,9 @@ class AdaptationState:
     upper_bound: float | None
     allocation_multiplier: float
     state: str
+    win_rate: float = 0.0
+    research_samples: int = 0
+    executed_samples: int = 0
 
 
 class PaperBroker:
@@ -56,7 +59,7 @@ class PaperBroker:
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, family TEXT NOT NULL,
                 allocation_status TEXT NOT NULL DEFAULT 'active',
                 allocation_tier TEXT NOT NULL DEFAULT 'probation',
-                strategy_version TEXT NOT NULL DEFAULT 'v2.4-executable-learning',
+                strategy_version TEXT NOT NULL DEFAULT 'v2.5-validated-alpha',
                 horizon INTEGER NOT NULL DEFAULT 1,
                 initial_cash REAL NOT NULL, cash REAL NOT NULL,
                 equity REAL NOT NULL, high_water REAL NOT NULL,
@@ -148,7 +151,14 @@ class PaperBroker:
                 mean_return REAL NOT NULL DEFAULT 0, m2 REAL NOT NULL DEFAULT 0,
                 lower_bound REAL, upper_bound REAL,
                 allocation_multiplier REAL NOT NULL DEFAULT 1,
-                state TEXT NOT NULL DEFAULT 'warming', updated_at REAL NOT NULL
+                state TEXT NOT NULL DEFAULT 'warming', updated_at REAL NOT NULL,
+                win_rate REAL NOT NULL DEFAULT 0,
+                research_samples INTEGER NOT NULL DEFAULT 0,
+                executed_samples INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS strategy_epochs (
+                strategy_version TEXT PRIMARY KEY, started_at REAL NOT NULL,
+                active_equity_baseline REAL NOT NULL, status TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS trades_agent_idx ON trades(agent_id, timestamp);
             CREATE INDEX IF NOT EXISTS positions_agent_idx ON positions(agent_id);
@@ -214,6 +224,11 @@ class PaperBroker:
                 "market_probability": "REAL",
                 "net_edge": "REAL",
             },
+            "strategy_adaptation": {
+                "win_rate": "REAL NOT NULL DEFAULT 0",
+                "research_samples": "INTEGER NOT NULL DEFAULT 0",
+                "executed_samples": "INTEGER NOT NULL DEFAULT 0",
+            },
         }
         for table, columns in additions.items():
             existing = {str(row[1]) for row in self.db.execute(f"PRAGMA table_info({table})")}
@@ -225,6 +240,35 @@ class PaperBroker:
         )
         self.db.execute("PRAGMA optimize")
         self.db.commit()
+
+    def ensure_strategy_epoch(self, strategy_version: str) -> bool:
+        """Start a clean evidence epoch without rewriting historical trades.
+
+        Old evaluations remain auditable, but they can never authorize capital
+        for a new model version.  The reset is performed exactly once per version.
+        """
+        existing = self.db.execute(
+            "SELECT 1 FROM strategy_epochs WHERE strategy_version=?", (strategy_version,)
+        ).fetchone()
+        if existing is not None:
+            return False
+        baseline = float(self.db.execute(
+            "SELECT COALESCE(SUM(equity),0) FROM agents WHERE allocation_status='active'"
+        ).fetchone()[0])
+        now = time.time()
+        self.db.execute(
+            "INSERT INTO strategy_epochs VALUES(?,?,?,'research-only')",
+            (strategy_version, now, baseline),
+        )
+        self.db.execute(
+            """UPDATE strategy_adaptation SET samples=0,mean_return=0,m2=0,
+               lower_bound=NULL,upper_bound=NULL,allocation_multiplier=0,
+               state='research',updated_at=?,win_rate=0,research_samples=0,
+               executed_samples=0""",
+            (now,),
+        )
+        self.db.commit()
+        return True
 
     def register_agents(self, specs: list) -> None:
         now = time.time()
@@ -326,7 +370,7 @@ class PaperBroker:
                 "SELECT horizon,strategy_version FROM agents WHERE id=?", (agent_id,)
             ).fetchone()
             horizon = max(1, int(agent["horizon"] if agent else 1))
-            version = str(agent["strategy_version"] if agent else "v2.4-executable-learning")
+            version = str(agent["strategy_version"] if agent else "v2.5-validated-alpha")
             self.db.execute(
                 """INSERT INTO adaptation_evaluations(
                    agent_id,market_id,token_id,outcome,entry_price,entry_fee_per_share,
@@ -344,7 +388,7 @@ class PaperBroker:
 
     def _strategy_version(self, agent_id: str) -> str:
         row = self.db.execute("SELECT strategy_version FROM agents WHERE id=?", (agent_id,)).fetchone()
-        return str(row[0]) if row and row[0] else "v2.4-executable-learning"
+        return str(row[0]) if row and row[0] else "v2.5-validated-alpha"
 
     def _liquidate_market(
         self, agent_id: str, f: FeatureVector, reason: str,
@@ -567,20 +611,13 @@ class PaperBroker:
         feature: FeatureVector,
         decision_reason: str,
     ) -> bool:
-        """Queue one conservative, forward after-cost evaluation per agent.
+        """Queue one *eligible* shadow test using conservative taker marks.
 
-        Rejected and below-threshold ideas now teach the allocator instead of
-        leaving every strategy permanently in a zero-sample warming state.
-        The counterfactual assumes taker entry and taker liquidation, so an
-        unfilled maker quote is never credited with imaginary spread capture.
+        Selection quality is enforced by the engine.  This method deliberately
+        refuses complete-set signals: a short-horizon bid liquidation is not a
+        valid test of an arbitrage that only realizes $1 at resolution.
         """
         if not signal.preferred_outcome:
-            return False
-        pending = self.db.execute(
-            "SELECT 1 FROM adaptation_evaluations WHERE agent_id=? AND resolved_at IS NULL LIMIT 1",
-            (signal.agent_id,),
-        ).fetchone()
-        if pending is not None:
             return False
         agent = self.db.execute(
             "SELECT horizon,strategy_version FROM agents WHERE id=?",
@@ -588,20 +625,20 @@ class PaperBroker:
         ).fetchone()
         if agent is None:
             return False
+        pending = self.db.execute(
+            """SELECT 1 FROM adaptation_evaluations WHERE agent_id=? AND strategy_version=?
+               AND resolved_at IS NULL LIMIT 1""",
+            (signal.agent_id, str(agent["strategy_version"])),
+        ).fetchone()
+        if pending is not None:
+            return False
         binary = feature.market.binary_tokens()
         if binary is None:
             return False
         (yes_outcome, yes_id), (no_outcome, no_id) = binary
         outcome = signal.preferred_outcome
         if outcome.upper() == "BOTH":
-            if feature.yes_book.best_ask is None or feature.no_book.best_ask is None:
-                return False
-            token_id = "BOTH"
-            entry_price = feature.yes_book.best_ask + feature.no_book.best_ask
-            entry_fee = (
-                feature.market.fee_rate * feature.yes_book.best_ask * (1.0 - feature.yes_book.best_ask)
-                + feature.market.fee_rate * feature.no_book.best_ask * (1.0 - feature.no_book.best_ask)
-            )
+            return False
         else:
             is_yes = outcome.lower() == "yes"
             token_id = yes_id if is_yes else no_id
@@ -623,12 +660,65 @@ class PaperBroker:
                 signal.agent_id, feature.market.id, token_id, outcome, entry_price,
                 entry_fee, feature.market.fee_rate, created_at,
                 created_at + horizon * 5 * 60, str(agent["strategy_version"]),
-                "counterfactual-taker", decision_reason,
+                "eligible-shadow", decision_reason,
                 signal.estimated_yes_probability, feature.mid_yes, signal.edge,
             ),
         )
         self.db.commit()
         return True
+
+    def _refresh_adaptation(self, agent_id: str, strategy_version: str) -> None:
+        rows = self.db.execute(
+            """SELECT realized_return,evaluation_class FROM adaptation_evaluations
+               WHERE agent_id=? AND strategy_version=? AND resolved_at IS NOT NULL
+               AND evaluation_class IN ('eligible-shadow','executed')""",
+            (agent_id, strategy_version),
+        ).fetchall()
+        values = [float(row["realized_return"]) for row in rows]
+        research = sum(row["evaluation_class"] == "eligible-shadow" for row in rows)
+        executed = sum(row["evaluation_class"] == "executed" for row in rows)
+        samples = len(values)
+        mean = sum(values) / samples if samples else 0.0
+        m2 = sum((value - mean) ** 2 for value in values)
+        lower = upper = None
+        if samples >= 2:
+            error = math.sqrt(max(0.0, m2 / (samples - 1)) / samples)
+            lower, upper = mean - 1.96 * error, mean + 1.96 * error
+        win_rate = sum(value > 0 for value in values) / samples if samples else 0.0
+
+        # Capital is opt-in, never the default. Thirty clean forward tests,
+        # positive average and lower confidence bound, and >=55% winners are
+        # all required. Ten losing live samples revoke the allocation.
+        multiplier, state = 0.0, "research"
+        if research >= 30:
+            if lower is not None and lower > 0 and mean > 0.002 and win_rate >= 0.55:
+                multiplier, state = 0.20, "validated"
+            else:
+                state = "rejected"
+        executed_values = [
+            float(row["realized_return"]) for row in rows
+            if row["evaluation_class"] == "executed"
+        ]
+        if len(executed_values) >= 10 and sum(executed_values) / len(executed_values) <= 0:
+            multiplier, state = 0.0, "paused"
+        self.db.execute(
+            """INSERT INTO strategy_adaptation(
+               agent_id,samples,mean_return,m2,lower_bound,upper_bound,
+               allocation_multiplier,state,updated_at,win_rate,research_samples,executed_samples
+               ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(agent_id) DO UPDATE SET
+               samples=excluded.samples,mean_return=excluded.mean_return,m2=excluded.m2,
+               lower_bound=excluded.lower_bound,upper_bound=excluded.upper_bound,
+               allocation_multiplier=excluded.allocation_multiplier,state=excluded.state,
+               updated_at=excluded.updated_at,win_rate=excluded.win_rate,
+               research_samples=excluded.research_samples,executed_samples=excluded.executed_samples""",
+            (agent_id, samples, mean, m2, lower, upper, multiplier, state,
+             time.time(), win_rate, research, executed),
+        )
+
+    def refresh_adaptation(self, agent_id: str) -> None:
+        """Public test/maintenance hook; always uses the agent's current version."""
+        self._refresh_adaptation(agent_id, self._strategy_version(agent_id))
+        self.db.commit()
 
     def resolve_adaptation(self, features: dict[str, FeatureVector]) -> int:
         now = time.time()
@@ -668,47 +758,11 @@ class PaperBroker:
                    WHERE id=?""",
                 (now, future_bid, realized_return, row["id"]),
             )
-            adaptive = self.db.execute(
-                "SELECT * FROM strategy_adaptation WHERE agent_id=?", (row["agent_id"],)
-            ).fetchone()
-            samples = int(adaptive["samples"] if adaptive else 0)
-            mean = float(adaptive["mean_return"] if adaptive else 0.0)
-            m2 = float(adaptive["m2"] if adaptive else 0.0)
-            new_samples = samples + 1
-            delta = realized_return - mean
-            new_mean = mean + delta / new_samples
-            new_m2 = m2 + delta * (realized_return - new_mean)
-            lower: float | None = None
-            upper: float | None = None
-            multiplier = 1.0
-            state = "warming"
-            if new_samples >= 2:
-                variance = max(0.0, new_m2 / (new_samples - 1))
-                error = math.sqrt(variance / new_samples)
-                lower, upper = new_mean - 1.96 * error, new_mean + 1.96 * error
-            if new_samples >= 20 and upper is not None and upper < 0:
-                multiplier, state = 0.0, "paused"
-            elif new_samples >= 20 and lower is not None and lower > 0:
-                multiplier, state = 1.25, "validated"
-            elif new_samples >= 10 and new_mean < 0:
-                multiplier, state = 0.25, "reduced"
-            elif new_samples >= 10:
-                multiplier, state = 0.75, "probation"
-            self.db.execute(
-                """INSERT INTO strategy_adaptation(
-                   agent_id,samples,mean_return,m2,lower_bound,upper_bound,
-                   allocation_multiplier,state,updated_at
-                   ) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(agent_id) DO UPDATE SET
-                   samples=excluded.samples,mean_return=excluded.mean_return,m2=excluded.m2,
-                   lower_bound=excluded.lower_bound,upper_bound=excluded.upper_bound,
-                   allocation_multiplier=excluded.allocation_multiplier,
-                   state=excluded.state,updated_at=excluded.updated_at""",
-                (
-                    row["agent_id"], new_samples, new_mean, new_m2, lower, upper,
-                    multiplier, state, now,
-                ),
-            )
             resolved += 1
+        # Recompute from current-version evidence only. This prevents a prior
+        # model's contaminated counterfactuals from approving a new strategy.
+        for row in self.db.execute("SELECT id,strategy_version FROM agents"):
+            self._refresh_adaptation(str(row["id"]), str(row["strategy_version"]))
         self.db.commit()
         return resolved
 
@@ -719,6 +773,8 @@ class PaperBroker:
                 float(row["lower_bound"]) if row["lower_bound"] is not None else None,
                 float(row["upper_bound"]) if row["upper_bound"] is not None else None,
                 float(row["allocation_multiplier"]), str(row["state"]),
+                float(row["win_rate"]), int(row["research_samples"]),
+                int(row["executed_samples"]),
             )
             for row in self.db.execute("SELECT * FROM strategy_adaptation")
         }

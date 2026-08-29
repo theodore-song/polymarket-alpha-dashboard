@@ -248,7 +248,7 @@ class AgentSpec:
     params: dict[str, float]
     allocation_status: str = "active"
     allocation_tier: str = "probation"
-    strategy_version: str = "v2.4-executable-learning"
+    strategy_version: str = "v2.5-validated-alpha"
 
 
 @dataclass(frozen=True)
