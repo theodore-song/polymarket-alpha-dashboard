@@ -92,7 +92,7 @@ jobs:
             cp work/runtime/health.json runtime/health.json
             cp work/runtime/polyalpha-v2.sqlite3 runtime/polyalpha-v2.sqlite3
             cp work/runtime/vercel.json vercel.json
-            git add runtime
+            git add runtime vercel.json
             git commit --amend -m "Update PolyAlpha runtime state"
             git push \
               --force-with-lease="refs/heads/runtime-state:${runtime_sha}" \
@@ -107,7 +107,7 @@ jobs:
             cp work/runtime/health.json runtime/health.json
             cp work/runtime/polyalpha-v2.sqlite3 runtime/polyalpha-v2.sqlite3
             cp work/runtime/vercel.json vercel.json
-            git add runtime
+            git add runtime vercel.json
             git commit -m "Initialize PolyAlpha runtime state"
             git push origin HEAD:refs/heads/runtime-state
           fi

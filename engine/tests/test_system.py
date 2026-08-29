@@ -71,6 +71,7 @@ class FactoryTests(unittest.TestCase):
         self.assertIn("300 - elapsed", workflow)
         self.assertNotIn("2,7,12,17,22,27,32,37,42,47,52,57", workflow)
         self.assertIn("cp work/runtime/vercel.json vercel.json", workflow)
+        self.assertIn("git add runtime vercel.json", workflow)
         vercel = json.loads((root / "vercel.json").read_text())
         self.assertFalse(vercel["git"]["deploymentEnabled"]["runtime-state"])
 
