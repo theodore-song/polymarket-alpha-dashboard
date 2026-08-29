@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import time
 import unittest
+import json
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -69,6 +70,9 @@ class FactoryTests(unittest.TestCase):
         self.assertIn("gh workflow run paper-cycle.yml", workflow)
         self.assertIn("300 - elapsed", workflow)
         self.assertNotIn("2,7,12,17,22,27,32,37,42,47,52,57", workflow)
+        self.assertIn("cp work/runtime/vercel.json vercel.json", workflow)
+        vercel = json.loads((root / "vercel.json").read_text())
+        self.assertFalse(vercel["git"]["deploymentEnabled"]["runtime-state"])
 
 
 class FeatureAndAgentTests(unittest.TestCase):

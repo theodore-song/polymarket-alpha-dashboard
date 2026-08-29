@@ -79,6 +79,7 @@ jobs:
         if: steps.trade.outputs.exit_code == '0' || steps.restore.outputs.had_runtime == 'true'
         shell: bash
         run: |
+          cp vercel.json work/runtime/vercel.json
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if git show-ref --verify --quiet refs/remotes/origin/runtime-state; then
@@ -90,6 +91,7 @@ jobs:
             cp work/runtime/equity.json runtime/equity.json
             cp work/runtime/health.json runtime/health.json
             cp work/runtime/polyalpha-v2.sqlite3 runtime/polyalpha-v2.sqlite3
+            cp work/runtime/vercel.json vercel.json
             git add runtime
             git commit --amend -m "Update PolyAlpha runtime state"
             git push \
@@ -104,6 +106,7 @@ jobs:
             cp work/runtime/equity.json runtime/equity.json
             cp work/runtime/health.json runtime/health.json
             cp work/runtime/polyalpha-v2.sqlite3 runtime/polyalpha-v2.sqlite3
+            cp work/runtime/vercel.json vercel.json
             git add runtime
             git commit -m "Initialize PolyAlpha runtime state"
             git push origin HEAD:refs/heads/runtime-state
